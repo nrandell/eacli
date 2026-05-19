@@ -15,6 +15,7 @@ dist/
 .eacli-cookies.json
 .eacli-agent-state.json
 *.html
+!test/fixtures/**/*.html
 
 # Local probe scripts (not shipped)
 scripts/
