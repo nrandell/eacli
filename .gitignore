@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# Session / auth state
+.eacli-session/
+.eacli-auth-state.json
+.eacli-cookies.json
+.eacli-agent-state.json
+*.html
+
+# Local probe scripts (not shipped)
+scripts/
+
+# OS / editor
+.DS_Store
+*.log

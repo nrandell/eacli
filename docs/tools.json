@@ -1,0 +1,154 @@
+{
+  "description": "OpenAI-style tool definitions for eacli (shell agents without MCP)",
+  "version": 1,
+  "cliPrefix": "npm run dev --",
+  "globalFlags": [
+    "--json"
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "list_members",
+        "description": "List linked members on the Everyone Active account. Call this first when the user says \"me\" or \"book for me\" — use the sole member if only one exists; otherwise ask which member.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_bookings",
+        "description": "List upcoming bookings for all linked members on the account.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_favourites",
+        "description": "List QuickBook favourite activities on the member home page.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "check_availability",
+        "description": "Check bookable or waitlist slots for a Group Exercise class. Always pass activity and date (do not scan all activities). Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Call before book_class and show the user available times.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "activity": {
+              "type": "string",
+              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat"
+            },
+            "date": {
+              "type": "string",
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)"
+            },
+            "member": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activity",
+            "date"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "book_class",
+        "description": "Book a Group Exercise class. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Requires user confirmation after check_availability. Books the first matching session on that day.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "activity": {
+              "type": "string",
+              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat"
+            },
+            "date": {
+              "type": "string",
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)"
+            },
+            "member": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activity",
+            "date"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "cancel_booking",
+        "description": "Cancel an existing booking. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Requires user confirmation. Match by activity and date.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "activity": {
+              "type": "string",
+              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat"
+            },
+            "date": {
+              "type": "string",
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)"
+            },
+            "member": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activity",
+            "date"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "login",
+        "description": "Force login to Everyone Active (uses USERNAME/PASSWORD from .env). Use when session errors occur.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "force": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "doctor",
+        "description": "Check local setup: .env credentials, saved session file, Playwright install. No browser login.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  ]
+}

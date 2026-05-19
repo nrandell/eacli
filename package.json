@@ -1,0 +1,44 @@
+{
+  "name": "eacli",
+  "version": "1.0.0",
+  "description": "CLI and MCP server for Everyone Active gym bookings (Playwright)",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "eacli": "./dist/index.js",
+    "eacli-mcp": "./dist/mcp/server.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "mcp": "tsx src/mcp/server.ts",
+    "generate-tools": "tsx src/tools/generate.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "axios": "^1.7.2",
+    "axios-cookiejar-support": "^3.0.0",
+    "chalk": "^5.6.2",
+    "cheerio": "^1.0.0-rc.12",
+    "commander": "^14.0.3",
+    "console-table-printer": "^2.15.0",
+    "dotenv": "^17.4.2",
+    "playwright": "^1.59.1",
+    "tough-cookie": "^4.1.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/tough-cookie": "^4.0.5",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
