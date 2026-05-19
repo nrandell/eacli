@@ -158,6 +158,7 @@ When the user asks to book, cancel, or check gym classes:
 4. Always ask the user to confirm before `mcp_eacli_book_class` or `mcp_eacli_cancel_booking`.
 5. Dates: saturday, next sunday, 2026-05-25, 25/05/2026.
 6. On NOT_LOGGED_IN errors, tell the user to run login once from the eacli repo: `npm run dev -- login`.
+7. For `mcp_eacli_list_bookings`, summarize per class session and list who is booked using each booking's **members** array. Only say both people are on a class when `members` has two names.
 ```
 
 See also [`.cursor/skills/eacli/SKILL.md`](../.cursor/skills/eacli/SKILL.md) for the full workflow (same logic).
@@ -168,7 +169,7 @@ See also [`.cursor/skills/eacli/SKILL.md`](../.cursor/skills/eacli/SKILL.md) for
 
 > What am I booked into this week?
 
-Hermes should call `mcp_eacli_list_bookings` and summarize the JSON `data.bookings` array.
+Hermes should call `mcp_eacli_list_bookings` and summarize `data.bookings`, listing who is on each session via the `members` array.
 
 **Check availability**
 

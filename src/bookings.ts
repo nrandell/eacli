@@ -3,9 +3,13 @@ import { printTable } from 'console-table-printer';
 import chalk from 'chalk';
 import fs from 'fs';
 import * as cheerio from 'cheerio';
-import { parseLinkedMembers, switchMember } from './members.js';
-import type { LinkedMember } from './members.js';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
+import { parseSessionDateLabel } from './favourites.js';
+import {
+  MANAGE_BOOKINGS_URL,
+  parseManageBookings,
+  type ManageBookingRow,
+} from './cancelBooking.js';
 
 export { MEMBER_HOME_URL } from './connect.js';
 
@@ -16,6 +20,9 @@ export interface Booking {
   location: string;
   status: string;
   reference?: string;
+  /** Who is booked on this session (canonical). */
+  members: string[];
+  /** Set when exactly one member is booked (backward compatibility for agents). */
   member?: string;
 }
 
@@ -24,19 +31,111 @@ const MONTHS: Record<string, number> = {
   jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
 
+export function normalizeBookingActivity(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, '');
+}
+
+export function bookingSessionKey(date: string, time: string, activity: string): string {
+  const timePart = time.match(/(\d{1,2}:\d{2})/)?.[1] ?? time.trim();
+  return `${date.trim()}|${timePart}|${normalizeBookingActivity(activity)}`;
+}
+
+export function referenceFromCancelQa(qa: string): string | undefined {
+  return qa.match(/Cancel-ID(\S+)/)?.[1];
+}
+
 function bookingToDate(date: string, time: string): Date {
+  const timePart = time.match(/(\d{1,2}:\d{2})/)?.[1] ?? time.trim();
+  const labeled = parseSessionDateLabel(`${date}, ${timePart}`);
+  if (labeled) {
+    const [h = '0', m = '0'] = timePart.split(':');
+    return new Date(
+      labeled.getFullYear(),
+      labeled.getMonth(),
+      labeled.getDate(),
+      parseInt(h, 10),
+      parseInt(m, 10)
+    );
+  }
   const parts = date.trim().split(/\s+/);
   const day = parseInt(parts[1] ?? '1', 10);
-  const monthStr = (parts[2] ?? 'jan').slice(0, 3).toLowerCase();
+  const monthStr = (parts[2] ?? parts[1] ?? 'jan').slice(0, 3).toLowerCase();
   const month = MONTHS[monthStr] ?? 0;
-  const [h = '0', m = '0'] = time.split(':');
+  const [h = '0', min = '0'] = timePart.split(':');
   const now = new Date();
   let year = now.getFullYear();
   if (month < now.getMonth() || (month === now.getMonth() && day < now.getDate())) year++;
-  return new Date(year, month, day, parseInt(h, 10), parseInt(m, 10));
+  return new Date(year, month, day, parseInt(h, 10), parseInt(min, 10));
 }
 
-/** Parse upcoming bookings from the member home #upcomingPanel (Connect portal). */
+function sortBookings(bookings: Booking[]): Booking[] {
+  return [...bookings].sort(
+    (a, b) => bookingToDate(a.date, a.time).getTime() - bookingToDate(b.date, b.time).getTime()
+  );
+}
+
+function applyMemberCompat(booking: Booking): Booking {
+  const base = {
+    date: booking.date,
+    time: booking.time,
+    activity: booking.activity,
+    location: booking.location,
+    status: booking.status,
+    members: booking.members,
+    ...(booking.reference !== undefined ? { reference: booking.reference } : {}),
+  };
+  if (booking.members.length === 1) {
+    return { ...base, member: booking.members[0]! };
+  }
+  return base;
+}
+
+/** Map one Manage Bookings row to a partial booking (single member). */
+export function manageRowToBooking(row: ManageBookingRow): Booking {
+  const timePart = row.time.match(/(\d{1,2}:\d{2})/)?.[1] ?? row.time.trim();
+  const reference = referenceFromCancelQa(row.cancelQaId);
+  const booking: Booking = {
+    date: row.date,
+    time: timePart,
+    activity: row.activity,
+    location: row.site || 'Centre',
+    status: 'Confirmed',
+    members: row.member.trim() ? [row.member.trim()] : [],
+  };
+  if (reference) booking.reference = reference;
+  return booking;
+}
+
+/** Group Manage Bookings rows by session; merge members who share the same class. */
+export function groupBookingsBySession(rows: ManageBookingRow[]): Booking[] {
+  const bySession = new Map<string, Booking>();
+
+  for (const row of rows) {
+    const partial = manageRowToBooking(row);
+    const key = bookingSessionKey(partial.date, partial.time, partial.activity);
+    const memberName = row.member.trim();
+    const existing = bySession.get(key);
+
+    if (existing) {
+      if (memberName && !existing.members.includes(memberName)) {
+        existing.members.push(memberName);
+      }
+      if (!existing.reference && partial.reference) {
+        existing.reference = partial.reference;
+      }
+    } else {
+      bySession.set(key, { ...partial });
+    }
+  }
+
+  const grouped = [...bySession.values()];
+  for (const b of grouped) {
+    b.members.sort((a, c) => a.localeCompare(c));
+  }
+  return sortBookings(grouped.map(applyMemberCompat));
+}
+
+/** Parse upcoming bookings from the member home #upcomingPanel (fallback only). */
 export function parseUpcomingBookings(html: string): Booking[] {
   const $ = cheerio.load(html);
   const panel = $('#upcomingPanel');
@@ -51,7 +150,14 @@ export function parseUpcomingBookings(html: string): Booking[] {
     const href = $(el).attr('href') ?? '';
     const idMatch = href.match(/id=(\d+)/);
     if (activity) {
-      const booking: Booking = { date, time, activity, location: 'Centre', status: 'Confirmed' };
+      const booking: Booking = {
+        date,
+        time,
+        activity,
+        location: 'Centre',
+        status: 'Confirmed',
+        members: [],
+      };
       if (idMatch?.[1]) booking.reference = idMatch[1];
       bookings.push(booking);
     }
@@ -64,7 +170,9 @@ export function parseUpcomingBookings(html: string): Booking[] {
     if (cells.length >= 2 && !/date|time|activity|booking/i.test(cells[0] ?? '')) {
       const [date = '', time = '', activity = '', location = '', status = '', reference = ''] = cells;
       if (date && (activity || time)) {
-        bookings.push({ date, time, activity, location, status, reference });
+        const booking: Booking = { date, time, activity, location, status, members: [] };
+        if (reference) booking.reference = reference;
+        bookings.push(booking);
       }
     }
   });
@@ -72,88 +180,63 @@ export function parseUpcomingBookings(html: string): Booking[] {
   return bookings;
 }
 
-function dedupeBookings(bookings: Booking[]): Booking[] {
-  const seen = new Map<string, Booking>();
-  for (const booking of bookings) {
-    const key = booking.reference ?? `${booking.date}|${booking.time}|${booking.activity}`;
-    const existing = seen.get(key);
-    if (existing) {
-      if (booking.member && existing.member && !existing.member.includes(booking.member)) {
-        existing.member = `${existing.member}, ${booking.member}`;
-      }
-    } else {
-      seen.set(key, { ...booking });
-    }
-  }
-  const deduped = [...seen.values()];
-  deduped.sort((a, b) => bookingToDate(a.date, a.time).getTime() - bookingToDate(b.date, b.time).getTime());
-  return deduped;
-}
-
-async function collectBookingsForMember(page: Page, member?: LinkedMember): Promise<Booking[]> {
-  const html = await page.content();
-  return parseUpcomingBookings(html).map((b) => {
-    if (!member) return b;
-    return { ...b, member: member.name };
-  });
-}
-
-export async function getBookings(page: Page): Promise<Booking[]> {
+async function getBookingsFromUpcomingPanel(page: Page): Promise<Booking[]> {
   await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'member-home');
 
-  const panelVisible = await page.locator('#upcomingPanel').isVisible().catch(() => false);
-  if (!panelVisible && process.env.DEBUG) {
-    console.log(chalk.yellow('[debug] #upcomingPanel not visible; saving page HTML for inspection'));
-    try {
-      fs.mkdirSync('.eacli-session', { recursive: true });
-      fs.writeFileSync('.eacli-session/last-member-home.html', await page.content());
-    } catch {}
-  }
-
-  const members = parseLinkedMembers(await page.content());
-  let allBookings: Booking[] = [];
-
-  if (members.length <= 1) {
-    allBookings = await collectBookingsForMember(page);
-  } else {
-    if (process.env.DEBUG) {
-      console.log(chalk.gray(`[debug] Members: ${members.map((m) => m.name).join(', ')}`));
-    }
-    const selectedFirst = members.find((m) => m.selected) ?? members[0]!;
-    const rest = members.filter((m) => m.id !== selectedFirst.id);
-
-    allBookings.push(...(await collectBookingsForMember(page, selectedFirst)));
-
-    for (const member of rest) {
-      await switchMember(page, member);
-      const memberBookings = await collectBookingsForMember(page, member);
-      if (process.env.DEBUG) {
-        console.log(chalk.gray(`[debug] ${member.name}: ${memberBookings.length} booking(s)`));
-      }
-      allBookings.push(...memberBookings);
-    }
-
-    allBookings = dedupeBookings(allBookings);
-  }
-
+  const bookings = parseUpcomingBookings(await page.content());
   if (process.env.DEBUG) {
-    console.log(chalk.gray(`[debug] Page URL: ${page.url()}`));
-    console.log(chalk.gray(`[debug] Extracted ${allBookings.length} booking(s) from member home`));
-  }
-
-  if (allBookings.length === 0) {
-    const bodyText = (await page.textContent('body'))?.slice(0, 500) || '';
-    if (process.env.DEBUG) console.log(chalk.yellow('[debug] Page body sample:'), bodyText);
+    console.log(
+      chalk.yellow(
+        `[debug] Manage Bookings empty; fallback upcoming panel: ${bookings.length} booking(s) (no per-member attribution)`
+      )
+    );
     try {
       fs.mkdirSync('.eacli-session', { recursive: true });
       fs.writeFileSync('.eacli-session/last-bookings-page.html', await page.content());
-      console.log(chalk.gray('[debug] Saved full HTML to .eacli-session/last-bookings-page.html'));
     } catch {}
   }
+  return sortBookings(bookings);
+}
 
-  return allBookings;
+export async function getBookings(page: Page): Promise<Booking[]> {
+  await page.goto(MANAGE_BOOKINGS_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await ensureNoErrorPage(page, 'manage-bookings');
+
+  const html = await page.content();
+  const rows = parseManageBookings(html);
+  let bookings = groupBookingsBySession(rows);
+
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] Page URL: ${page.url()}`));
+    console.log(
+      chalk.gray(
+        `[debug] Manage Bookings: ${rows.length} row(s) → ${bookings.length} session(s)`
+      )
+    );
+  }
+
+  if (bookings.length === 0) {
+    if (rows.length === 0) {
+      try {
+        fs.mkdirSync('.eacli-session', { recursive: true });
+        fs.writeFileSync('.eacli-session/last-manage-bookings.html', html);
+        if (process.env.DEBUG) {
+          console.log(chalk.gray('[debug] Saved HTML to .eacli-session/last-manage-bookings.html'));
+        }
+      } catch {}
+    }
+    bookings = await getBookingsFromUpcomingPanel(page);
+  }
+
+  return bookings;
+}
+
+function formatMembersColumn(booking: Booking): string {
+  if (booking.members.length === 0) return '—';
+  return booking.members.join('; ');
 }
 
 export function printBookings(bookings: Booking[]): void {
@@ -164,10 +247,10 @@ export function printBookings(bookings: Booking[]): void {
 
   console.log(chalk.green(`\nYou have ${bookings.length} booking(s):\n`));
 
-  const showMember = bookings.some((b) => b.member !== undefined);
+  const showMembers = bookings.some((b) => b.members.length > 0);
   const tableData = bookings.map((b, idx) => ({
     '#': idx + 1,
-    ...(showMember ? { Member: b.member ?? '' } : {}),
+    ...(showMembers ? { Members: formatMembersColumn(b) } : {}),
     Date: b.date,
     Time: b.time,
     Activity: b.activity,

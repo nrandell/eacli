@@ -5,7 +5,7 @@
 | Tool | Purpose |
 |------|---------|
 | `list_members` | Linked accounts on the membership |
-| `list_bookings` | Upcoming bookings |
+| `list_bookings` | Upcoming bookings (per session, with `members[]`) |
 | `list_favourites` | QuickBook shortcuts |
 | `check_availability` | Slots for one activity + date |
 | `book_class` | Book after confirmation |
@@ -45,6 +45,26 @@ npm run dev -- doctor --json
   "error": { "message": "...", "code": "NO_SESSION" }
 }
 ```
+
+## `list_bookings` data shape
+
+Each item in `data.bookings`:
+
+```json
+{
+  "date": "Tue 19 May",
+  "time": "18:40",
+  "activity": "HIIT",
+  "location": "Centre",
+  "status": "Confirmed",
+  "members": ["Nick Randell"],
+  "member": "Nick Randell"
+}
+```
+
+- **`members`** (canonical): who is booked on that class. Multiple names = both are on that session.
+- **`member`**: present only when exactly one person is booked (backward compatibility).
+- One object per class session, not one per person.
 
 ## Error codes
 

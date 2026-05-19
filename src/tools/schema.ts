@@ -73,7 +73,8 @@ export const TOOL_METAS: ToolMeta[] = [
   },
   {
     name: 'list_bookings',
-    description: 'List upcoming bookings for all linked members on the account.',
+    description:
+      'List upcoming bookings from Manage Bookings. Each session has a members array naming who is booked; multiple names means both are on that class. One row per class session — do not treat comma-separated legacy member fields as proof both are booked; use members.',
     inputSchema: toolInputSchemas.list_bookings,
   },
   {

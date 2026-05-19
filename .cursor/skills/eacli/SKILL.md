@@ -28,7 +28,7 @@ See [reference.md](reference.md) for command mapping, error codes, and JSON shap
 |-------------|--------|
 | Book a class ("book me onto combat next sunday") | `list_members` → resolve "me" → `check_availability` → **confirm with user** → `book_class` |
 | What's available? | `check_availability` with **activity and date** (never scan all activities) |
-| What am I booked into? | `list_bookings` |
+| What am I booked into? | `list_bookings` — use each session's `members` array (not comma-separated `member`) |
 | Cancel a class | `list_bookings` (optional) → **confirm** → `cancel_booking` |
 | Who can I book for? | `list_members` |
 

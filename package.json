@@ -1,6 +1,6 @@
 {
   "name": "eacli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI and MCP server for Everyone Active gym bookings (Playwright)",
   "main": "dist/index.js",
   "engines": {
@@ -16,7 +16,7 @@
     "start": "node dist/index.js",
     "mcp": "tsx src/mcp/server.ts",
     "generate-tools": "tsx src/tools/generate.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --import tsx --test test/**/*.test.ts"
   },
   "keywords": [],
   "author": "",

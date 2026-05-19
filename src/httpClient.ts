@@ -259,7 +259,7 @@ export async function getBookingsHttp(): Promise<Booking[]> {
         if (cells.length >= 4 && !/date|time|activity/i.test(cells[0] || '')) {
           const [date = '', time = '', activity = '', location = '', status = '', reference = ''] = cells;
           if (date && activity) {
-            bookings.push({ date, time, activity, location, status, reference });
+            bookings.push({ date, time, activity, location, status, reference, members: [] });
             rowsFound = true;
           }
         }
@@ -281,6 +281,7 @@ export async function getBookingsHttp(): Promise<Booking[]> {
           activity: (txt.split('\n')[0] || '').trim().slice(0, 60),
           location: 'Centre',
           status: txt.includes('Cancelled') ? 'Cancelled' : 'Confirmed',
+          members: [],
         });
       }
     });

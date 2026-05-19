@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from 'node:test';
+import { parseManageBookings } from '../src/cancelBooking.js';
+import {
+  bookingSessionKey,
+  groupBookingsBySession,
+  type Booking,
+} from '../src/bookings.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const fixtureDir = join(__dirname, 'fixtures');
+
+function loadFixture(name: string): string {
+  return readFileSync(join(fixtureDir, name), 'utf8');
+}
+
+/** Previous list_bookings dedupe: merged household upcoming panel duplicates by session key. */
+function legacyDedupeBySession(bookings: Booking[]): Booking[] {
+  const seen = new Map<string, Booking>();
+  for (const booking of bookings) {
+    const key = booking.reference ?? bookingSessionKey(booking.date, booking.time, booking.activity);
+    const memberName = booking.member ?? booking.members[0] ?? '';
+    const existing = seen.get(key);
+    if (existing) {
+      if (memberName && !existing.members.includes(memberName)) {
+        existing.members.push(memberName);
+        const first = existing.members[0] ?? '';
+        existing.member = existing.members.length > 1 ? `${first}, ${memberName}` : first;
+      }
+    } else {
+      seen.set(key, {
+        ...booking,
+        members: memberName ? [memberName] : [...booking.members],
+        ...(memberName ? { member: memberName } : {}),
+      });
+    }
+  }
+  return [...seen.values()];
+}
+
+test('parseManageBookings extracts member per row', () => {
+  const rows = parseManageBookings(loadFixture('manage-bookings-multi-member.html'));
+  assert.equal(rows.length, 8);
+  assert.equal(
+    rows.filter(
+      (r) => r.activity.replace(/\s/g, '').toUpperCase().includes('HIIT') && r.member === 'Nick Randell'
+    ).length,
+    3
+  );
+  assert.equal(rows.filter((r) => r.activity === 'Combat').length, 2);
+});
+
+test('groupBookingsBySession matches Nick/Hayley split', () => {
+  const rows = parseManageBookings(loadFixture('manage-bookings-multi-member.html'));
+  const sessions = groupBookingsBySession(rows);
+
+  assert.equal(sessions.length, 5);
+
+  const hiitTue = sessions.find(
+    (s) => s.date === 'Tue 19 May' && s.activity.replace(/\s/g, '').toUpperCase().includes('HIIT')
+  );
+  assert.deepEqual(hiitTue?.members, ['Nick Randell']);
+  assert.equal(hiitTue?.member, 'Nick Randell');
+
+  const combat = sessions.find((s) => s.date === 'Thu 21 May');
+  assert.deepEqual(combat?.members, ['Hayley Randell', 'Nick Randell']);
+
+  const hiitSat = sessions.find((s) => s.date === 'Sat 23 May');
+  assert.deepEqual(hiitSat?.members, ['Nick Randell']);
+
+  const bodyCombat = sessions.find((s) => s.date === 'Sun 24 May');
+  assert.deepEqual(bodyCombat?.members, ['Hayley Randell', 'Nick Randell']);
+  assert.equal(bodyCombat?.member, undefined);
+
+  const hiitTue26 = sessions.find((s) => s.date === 'Tue 26 May');
+  assert.deepEqual(hiitTue26?.members, ['Hayley Randell', 'Nick Randell']);
+});
+
+test('regression: legacy upcoming-panel dedupe falsely marks both on Nick-only HIIT', () => {
+  const householdHiit: Booking = {
+    date: 'Tue 19 May',
+    time: '18:40',
+    activity: 'H I I T',
+    location: 'Centre',
+    status: 'Confirmed',
+    reference: '12345',
+    members: [],
+  };
+
+  const nickPass = { ...householdHiit, members: ['Nick Randell'], member: 'Nick Randell' };
+  const hayleyPass = { ...householdHiit, members: ['Hayley Randell'], member: 'Hayley Randell' };
+  const legacy = legacyDedupeBySession([nickPass, hayleyPass]);
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0]!.members.length, 2, 'legacy dedupe wrongly merges household panel dupes');
+
+  const rows = parseManageBookings(loadFixture('manage-bookings-multi-member.html'));
+  const hiitRows = rows.filter(
+    (r) => r.date === 'Tue 19 May' && r.activity.replace(/\s/g, '').toUpperCase().includes('HIIT')
+  );
+  const grouped = groupBookingsBySession(hiitRows);
+  assert.equal(grouped.length, 1);
+  assert.deepEqual(grouped[0]!.members, ['Nick Randell']);
+});

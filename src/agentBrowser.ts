@@ -2,9 +2,13 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import chalk from 'chalk';
 import * as cheerio from 'cheerio';
-import { parseUpcomingBookings, type Booking } from './bookings.js';
+import {
+  groupBookingsBySession,
+  parseUpcomingBookings,
+  type Booking,
+} from './bookings.js';
+import { MANAGE_BOOKINGS_URL, parseManageBookings } from './cancelBooking.js';
 import { parseFavourites } from './favourites.js';
-import { parseLinkedMembers } from './members.js';
 
 const STATE_FILE = '.eacli-agent-state.json';
 const LOGIN_URL = 'https://book.everyoneactive.com/Connect/mrmLogin.aspx';
@@ -67,7 +71,6 @@ async function doLogin(username: string, password: string): Promise<void> {
   await runCmd(['fill', '#ctl00_MainContent_InputPassword', password]);
   await runCmd(['click', '#ctl00_MainContent_btnLogin']);
 
-  // Read wherever the post-login redirect landed us (don't navigate away — that would discard cookies)
   const html = await runCmd(['get', 'html', 'body']);
   const $ = cheerio.load(html);
 
@@ -85,24 +88,6 @@ export function parseQuickBookOptions(html: string): QuickBookOption[] {
     if (f.activityId !== undefined) opt.value = f.activityId;
     return opt;
   });
-}
-
-const MONTHS: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
-function bookingToDate(date: string, time: string): Date {
-  // date: "Sun 10 May", time: "10:30"
-  const parts = date.trim().split(/\s+/);
-  const day = parseInt(parts[1] ?? '1', 10);
-  const monthStr = (parts[2] ?? 'jan').slice(0, 3).toLowerCase();
-  const month = MONTHS[monthStr] ?? 0;
-  const [h = '0', m = '0'] = time.split(':');
-  const now = new Date();
-  let year = now.getFullYear();
-  if (month < now.getMonth() || (month === now.getMonth() && day < now.getDate())) year++;
-  return new Date(year, month, day, parseInt(h, 10), parseInt(m, 10));
 }
 
 export async function getBookingsAgentBrowser(): Promise<Booking[]> {
@@ -125,87 +110,52 @@ export async function getBookingsAgentBrowser(): Promise<Booking[]> {
     const password = process.env.PASSWORD;
     if (!username || !password) throw new Error('USERNAME and PASSWORD must be set in .env');
     await doLogin(username, password);
-    await runCmd(['open', MEMBER_HOME_URL]);
   } else {
     console.log(chalk.green('Using saved session.'));
   }
 
+  await runCmd(['open', MANAGE_BOOKINGS_URL]);
   let bodyHtml = await runCmd(['get', 'html', 'body']);
 
   if (process.env.DEBUG) {
     fs.mkdirSync('.eacli-session', { recursive: true });
-    fs.writeFileSync('.eacli-session/last-member-home.html', bodyHtml);
-    console.log(chalk.gray('[debug] Saved member home HTML to .eacli-session/last-member-home.html'));
+    fs.writeFileSync('.eacli-session/last-manage-bookings.html', bodyHtml);
+    console.log(chalk.gray('[debug] Saved Manage Bookings HTML to .eacli-session/last-manage-bookings.html'));
   }
 
-  const quickBookOptions = parseQuickBookOptions(bodyHtml);
-  if (quickBookOptions.length > 0) {
-    if (process.env.DEBUG) {
-      console.log(chalk.gray(`[debug] Quick book options (${quickBookOptions.length}):`));
-      for (const opt of quickBookOptions) {
-        console.log(chalk.gray(`  - ${opt.label}${opt.href ? ` → ${opt.href}` : ''}`));
-      }
-    } else {
-      console.log(chalk.cyan(`Quick book shortcuts: ${quickBookOptions.map(o => o.label).join(', ')}`));
-    }
-  }
+  const rows = parseManageBookings(bodyHtml);
+  let bookings = groupBookingsBySession(rows);
 
-  const members = parseLinkedMembers(bodyHtml);
-  const allBookings: Booking[] = [];
+  if (bookings.length === 0) {
+    await runCmd(['open', MEMBER_HOME_URL]);
+    bodyHtml = await runCmd(['get', 'html', 'body']);
 
-  if (members.length <= 1) {
-    // Single-member account — no member tagging
-    allBookings.push(...parseUpcomingBookings(bodyHtml));
-  } else {
-    // Multi-member: collect bookings for each member in turn
-    const selectedFirst = members.find(m => m.selected) ?? members[0];
-    const rest = members.filter(m => m.id !== selectedFirst?.id);
-
-    if (process.env.DEBUG) console.log(chalk.gray(`[debug] Members: ${members.map(m => m.name).join(', ')}`));
-
-    // Bookings for the currently-selected member are already on the page
-    const firstBookings = parseUpcomingBookings(bodyHtml).map(b => {
-      const booking: Booking = { ...b };
-      booking.member = selectedFirst?.name ?? '';
-      return booking;
-    });
-    allBookings.push(...firstBookings);
-
-    // Switch to each other member and collect their bookings
-    for (const member of rest) {
-      if (process.env.DEBUG) console.log(chalk.gray(`[debug] Switching to member: ${member.name} (${member.sliderSelector})`));
-      await runCmd(['click', member.sliderSelector]);
-      await runCmd(['snapshot']); // wait for AJAX update to settle
-      bodyHtml = await runCmd(['get', 'html', 'body']);
-      const memberBookings = parseUpcomingBookings(bodyHtml).map(b => {
-        const booking: Booking = { ...b };
-        booking.member = member.name;
-        return booking;
-      });
-      if (process.env.DEBUG) console.log(chalk.gray(`[debug] ${member.name}: ${memberBookings.length} booking(s)`));
-      allBookings.push(...memberBookings);
-    }
-
-    // Deduplicate by reference: same session booked by multiple members → merge names
-    const seen = new Map<string, Booking>();
-    for (const booking of allBookings) {
-      const key = booking.reference ?? `${booking.date}|${booking.time}|${booking.activity}`;
-      const existing = seen.get(key);
-      if (existing) {
-        if (booking.member && existing.member && !existing.member.includes(booking.member)) {
-          existing.member = `${existing.member}, ${booking.member}`;
+    const quickBookOptions = parseQuickBookOptions(bodyHtml);
+    if (quickBookOptions.length > 0) {
+      if (process.env.DEBUG) {
+        console.log(chalk.gray(`[debug] Quick book options (${quickBookOptions.length}):`));
+        for (const opt of quickBookOptions) {
+          console.log(chalk.gray(`  - ${opt.label}${opt.href ? ` → ${opt.href}` : ''}`));
         }
       } else {
-        seen.set(key, { ...booking });
+        console.log(chalk.cyan(`Quick book shortcuts: ${quickBookOptions.map((o) => o.label).join(', ')}`));
       }
     }
 
-    const deduped = [...seen.values()];
-    deduped.sort((a, b) => bookingToDate(a.date, a.time).getTime() - bookingToDate(b.date, b.time).getTime());
-    allBookings.length = 0;
-    allBookings.push(...deduped);
+    bookings = parseUpcomingBookings(bodyHtml);
+    if (process.env.DEBUG) {
+      console.log(
+        chalk.yellow(
+          `[debug] Manage Bookings empty; fallback upcoming panel: ${bookings.length} booking(s)`
+        )
+      );
+    }
+  }
+
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] Extracted ${bookings.length} booking(s)`));
   }
 
   await saveState();
-  return allBookings;
+  return bookings;
 }
