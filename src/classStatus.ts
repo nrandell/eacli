@@ -8,7 +8,7 @@ import {
   resolveTargetDate,
   type Favourite,
 } from './favourites.js';
-import { resolveMember, switchMember, type LinkedMember } from './members.js';
+import { resolveMember, type LinkedMember } from './members.js';
 
 const SELECT_SITE_URL = 'https://book.everyoneactive.com/Connect/mrmselectsite.aspx?disableSiteSelection=1';
 const GROUP_EXERCISE_SELECTOR = '#ctl00_MainContent_activityGroupsGrid_ctrl8_lnkListCommand, [data-qa-id="button-ActivityID=166GRPEX"]';
@@ -91,8 +91,17 @@ export function getClassStatusPageMessage(html: string): string | undefined {
   return alert || undefined;
 }
 
-async function openViaFavourite(page: Page, member: LinkedMember | null, favourite: Favourite): Promise<void> {
-  if (member) await switchMember(page, member);
+/** Wait for class status rows or a warning message after navigation. */
+export async function waitForClassStatusContent(page: Page): Promise<void> {
+  const rows = page.locator('#ClassStatusWrapper .col-xs-12.div-row, #ClassStatusWrapper .motion.div-row');
+  const alert = page.locator('#ClassStatusWrapper .alert-warning, .alert-warning').first();
+  await Promise.race([
+    rows.first().waitFor({ state: 'visible', timeout: 15000 }),
+    alert.waitFor({ state: 'visible', timeout: 15000 }),
+  ]).catch(() => {});
+}
+
+async function openViaFavourite(page: Page, favourite: Favourite): Promise<void> {
   const favLink = favourite.activityId
     ? page.locator(`#collapseQuickBook a[data-qa-id*="ActivityID=${favourite.activityId}"]`).first()
     : page.locator('#collapseQuickBook a.btn-primary').filter({ hasText: new RegExp(favourite.name.split(/\s+/)[0]!, 'i') }).first();
@@ -100,6 +109,7 @@ async function openViaFavourite(page: Page, member: LinkedMember | null, favouri
   await favLink.click();
   await page.waitForURL(/mrmClassStatus\.aspx/i, { timeout: 30000 });
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await waitForClassStatusContent(page);
 }
 
 function normalizeActivity(s: string): string {
@@ -165,6 +175,7 @@ async function clickActivityOnList(
       await btn.click();
       await page.waitForURL(/mrmClassStatus\.aspx/i, { timeout: 30000 });
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await waitForClassStatusContent(page);
       return value;
     }
   }
@@ -214,7 +225,8 @@ export async function fetchSessionsForFavourite(
   member: LinkedMember | null,
   favourite: Favourite
 ): Promise<{ sessions: ClassSession[]; pageMessage?: string }> {
-  await openViaFavourite(page, member, favourite);
+  if (member) await resolveMember(page, member.name);
+  await openViaFavourite(page, favourite);
   await ensureNoErrorPage(page, 'class-status');
   const html = await page.content();
   const pageMessage = getClassStatusPageMessage(html);
@@ -247,7 +259,7 @@ export async function openClassStatus(page: Page, options: OpenClassStatusOption
       if (process.env.DEBUG) {
         console.log(chalk.gray(`[debug] Opening class status via QuickBook: ${activityLabel}`));
       }
-      await openViaFavourite(page, member, favourite);
+      await openViaFavourite(page, favourite);
     } catch {
       if (process.env.DEBUG) console.log(chalk.gray('[debug] Favourite not found, using Make a Booking browse'));
       activityLabel = await openViaBrowse(page, options.activity);
@@ -259,6 +271,7 @@ export async function openClassStatus(page: Page, options: OpenClassStatusOption
   }
 
   await ensureNoErrorPage(page, 'class-status');
+  await waitForClassStatusContent(page);
 
   const html = await page.content();
   const sessions = parseClassStatusSessions(html);

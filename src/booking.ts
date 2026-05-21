@@ -2,7 +2,7 @@ import type { Page } from 'playwright';
 import chalk from 'chalk';
 import fs from 'fs';
 import { ensureNoErrorPage } from './connect.js';
-import { openClassStatus } from './classStatus.js';
+import { openClassStatus, waitForClassStatusContent } from './classStatus.js';
 import {
   formatEaDateLabel,
   parseSessionDateLabel,
@@ -26,7 +26,11 @@ export interface BookClassResult {
 }
 
 async function confirmBookingBasket(page: Page): Promise<boolean> {
-  await page.waitForURL(/mrmConfirmBooking\.aspx/i, { timeout: 30000 });
+  try {
+    await page.waitForURL(/mrmConfirmBooking\.aspx/i, { timeout: 30000 });
+  } catch {
+    throw new Error('Booking basket did not load after clicking Book');
+  }
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'confirm-booking');
 
@@ -34,6 +38,7 @@ async function confirmBookingBasket(page: Page): Promise<boolean> {
   if (process.env.DEBUG) console.log(chalk.gray(`[debug] Booking summary: ${summary.slice(0, 200)}`));
 
   const confirmBtn = page.locator('#ctl00_MainContent_btnBasket, input[data-qa-id="button-basket"]').first();
+  await confirmBtn.waitFor({ state: 'visible', timeout: 15000 });
   await confirmBtn.click();
   await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(1500);
@@ -65,6 +70,7 @@ export async function bookClass(page: Page, options: BookClassOptions): Promise<
   }
 
   await ensureNoErrorPage(page, 'class-status');
+  await waitForClassStatusContent(page);
 
   const rows = page.locator('#ClassStatusWrapper .motion.div-row, #ClassStatusWrapper .col-xs-12.div-row');
   const count = await rows.count();

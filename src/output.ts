@@ -6,9 +6,11 @@ export type EacliErrorCode =
   | 'BOOKING_NOT_FOUND'
   | 'AMBIGUOUS_MEMBER'
   | 'MEMBER_NOT_FOUND'
+  | 'MEMBER_SWITCH_FAILED'
   | 'NOT_LOGGED_IN'
   | 'SITE_ERROR'
   | 'NO_SLOTS'
+  | 'TIMEOUT'
   | 'VALIDATION_ERROR'
   | 'UNKNOWN';
 
@@ -100,6 +102,15 @@ export function mapErrorFromThrowable(err: unknown): EacliError {
   }
   if (/could not parse date/i.test(message)) {
     return { message, code: 'VALIDATION_ERROR' };
+  }
+  if (/booking basket did not load/i.test(message)) {
+    return { message, code: 'TIMEOUT' };
+  }
+  if (
+    err instanceof Error &&
+    (err.name === 'TimeoutError' || /timeout.*exceeded/i.test(message) || /waiting for locator/i.test(lower))
+  ) {
+    return { message, code: 'TIMEOUT' };
   }
 
   return { message, code: 'UNKNOWN' };

@@ -19,10 +19,10 @@ function toolTextResult(response: EacliResponse<unknown>) {
 const server = new McpServer(
   {
     name: 'eacli',
-    version: '1.0.0',
+    version: '1.2.0',
   },
   {
-    instructions: `Everyone Active booking tools. Call list_members when the user says "me" and multiple members may exist. Call check_availability before book_class; ask the user to confirm book/cancel. Always pass activity and date to check_availability. For list_bookings, use each booking's members array to say who is booked on that session; only list multiple people when members has more than one name.`,
+    instructions: `Everyone Active booking tools. Call list_members when the user says "me" and multiple members may exist. Call check_availability before book_class; ask the user to confirm book/cancel. Always pass activity and date to check_availability. For list_bookings, use each booking's members array to say who is booked on that session; only list multiple people when members has more than one name. For household cron jobs booking multiple linked members, call book_class once per member with an explicit member param; call list_bookings between retries to verify state.`,
   }
 );
 

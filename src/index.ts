@@ -54,12 +54,12 @@ async function withAuth<T>(
   print?: (data: T) => void
 ): Promise<void> {
   if (debug) process.env.DEBUG = '1';
+  let auth: Awaited<ReturnType<typeof getAuthenticatedContext>> | undefined;
   try {
     logInfo(chalk.blue('Connecting to Everyone Active...'));
-    const auth = await getAuthenticatedContext();
+    auth = await getAuthenticatedContext();
     logInfo(chalk.blue(status));
     const data = await fn(auth.page);
-    await closeAuthenticated(auth);
     if (isJsonMode()) {
       writeJson(successResponse(command, data));
     } else if (print) {
@@ -73,6 +73,8 @@ async function withAuth<T>(
       console.error(chalk.red('Error:'), error.message);
     }
     process.exit(exitCodeForError(error.code));
+  } finally {
+    if (auth) await closeAuthenticated(auth).catch(() => {});
   }
 }
 
@@ -83,7 +85,7 @@ program
   .description(
     'CLI to manage bookings at Everyone Active centres (uses Playwright). Session cookies are saved in .eacli-auth-state.json between runs.'
   )
-  .version('0.1.0')
+  .version('1.2.0')
   .option('--json', 'Emit JSON on stdout (for LLM / automation)')
   .hook('preAction', () => {
     setJsonMode(Boolean(program.opts<{ json?: boolean }>().json));

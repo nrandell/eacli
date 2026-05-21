@@ -75,9 +75,11 @@ Each item in `data.bookings`:
 | `BOOKING_NOT_FOUND` | No matching booking to cancel |
 | `AMBIGUOUS_MEMBER` | Multiple bookings match — need `--member` |
 | `MEMBER_NOT_FOUND` | Name not in linked members |
+| `MEMBER_SWITCH_FAILED` | Could not switch linked member slider |
 | `NOT_LOGGED_IN` | Login required |
 | `SITE_ERROR` | Portal error page |
 | `NO_SLOTS` | No book/waitlist button |
+| `TIMEOUT` | Playwright navigation or locator timeout |
 | `VALIDATION_ERROR` | Bad args or missing member |
 | `UNKNOWN` | Other |
 

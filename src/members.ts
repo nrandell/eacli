@@ -4,6 +4,7 @@ import { printTable } from 'console-table-printer';
 import chalk from 'chalk';
 import fs from 'fs';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
+import { EacliCommandError } from './output.js';
 
 export interface LinkedMember {
   name: string;
@@ -11,6 +12,9 @@ export interface LinkedMember {
   selected: boolean;
   sliderSelector: string;
 }
+
+const MEMBER_SWITCH_POLL_MS = 200;
+const MEMBER_SWITCH_TIMEOUT_MS = 10000;
 
 export function parseLinkedMembers(html: string): LinkedMember[] {
   const $ = cheerio.load(html);
@@ -33,6 +37,31 @@ export function parseLinkedMembers(html: string): LinkedMember[] {
   });
 
   return members;
+}
+
+/** Whether a linked member is currently selected in saved HTML. */
+export function isMemberSelected(html: string, memberId: string): boolean {
+  const members = parseLinkedMembers(html);
+  return members.find((m) => m.id === memberId)?.selected ?? false;
+}
+
+async function readMemberSelection(page: Page, memberId: string): Promise<boolean> {
+  return isMemberSelected(await page.content(), memberId);
+}
+
+async function waitForMemberSelected(page: Page, member: LinkedMember): Promise<void> {
+  const deadline = Date.now() + MEMBER_SWITCH_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await readMemberSelection(page, member.id)) return;
+    await page.waitForTimeout(MEMBER_SWITCH_POLL_MS);
+  }
+
+  const members = parseLinkedMembers(await page.content());
+  const known = members.map((m) => `${m.name}${m.selected ? ' (selected)' : ''}`).join(', ');
+  throw new EacliCommandError(
+    `Failed to switch to member "${member.name}" within ${MEMBER_SWITCH_TIMEOUT_MS / 1000}s. Known members: ${known}`,
+    'MEMBER_SWITCH_FAILED'
+  );
 }
 
 /** Match a linked member by partial name (case-insensitive). */
@@ -68,11 +97,27 @@ export async function resolveMember(page: Page, memberName?: string): Promise<Li
 }
 
 export async function switchMember(page: Page, member: LinkedMember): Promise<void> {
+  if (!page.url().includes('memberHomePage.aspx')) {
+    await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  }
+
+  if (await readMemberSelection(page, member.id)) {
+    if (process.env.DEBUG) {
+      console.log(chalk.gray(`[debug] Member already selected: ${member.name}`));
+    }
+    return;
+  }
+
   if (process.env.DEBUG) {
     console.log(chalk.gray(`[debug] Switching to member: ${member.name} (${member.sliderSelector})`));
   }
+
   await page.locator(member.sliderSelector).click();
-  await page.waitForTimeout(800);
+  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+  await waitForMemberSelected(page, member);
+
+  await page.locator('#collapseQuickBook').waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 }
 

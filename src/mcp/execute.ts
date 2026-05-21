@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import { closeAuthenticated, getAuthenticatedContext } from '../auth.js';
+import { closeAuthenticated, getAuthenticatedContext, type AuthResult } from '../auth.js';
 import { bookClass } from '../booking.js';
 import { cancelBooking } from '../cancelBooking.js';
 import { getBookings } from '../bookings.js';
@@ -21,13 +21,15 @@ async function withAuthenticatedPage<T>(
   command: string,
   fn: (page: Page) => Promise<T>
 ): Promise<EacliResponse<T>> {
+  let auth: AuthResult | undefined;
   try {
-    const auth = await getAuthenticatedContext();
+    auth = await getAuthenticatedContext();
     const data = await fn(auth.page);
-    await closeAuthenticated(auth);
     return successResponse(command, data);
   } catch (err: unknown) {
     return errorResponse(command, mapErrorFromThrowable(err));
+  } finally {
+    if (auth) await closeAuthenticated(auth).catch(() => {});
   }
 }
 

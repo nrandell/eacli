@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-21
+
+### Fixed
+
+- **Multi-member MCP booking** — `book_class` for a second linked member no longer fails due to unreliable member switching, redundant slider clicks on the QuickBook path, or Chromium processes left open after Playwright errors (fixes [#1](https://github.com/nrandell/eacli/issues/1)).
+- **Member switch verification** — `switchMember` skips the slider when the target is already selected, polls until the portal confirms selection, and waits for QuickBook to reload.
+- **Browser cleanup** — MCP and CLI always close Playwright in a `finally` block, even when booking fails.
+
+### Added
+
+- Error codes `TIMEOUT` and `MEMBER_SWITCH_FAILED` for clearer agent handling.
+- Unit tests and HTML fixtures for linked member parsing (`test/members.test.ts`).
+- Hermes guide section for multi-member cron jobs.
+
 ## [1.1.0] - 2026-05-19
 
 ### Fixed

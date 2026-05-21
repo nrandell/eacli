@@ -54,6 +54,6 @@ Pass natural language through unchanged: `saturday`, `next sunday`, `today`, `20
 
 ## Errors
 
-JSON errors include `error.code`. Common codes: `NO_SESSION`, `ACTIVITY_NOT_FOUND`, `BOOKING_NOT_FOUND`, `AMBIGUOUS_MEMBER`, `NOT_LOGGED_IN`, `SITE_ERROR`.
+JSON errors include `error.code`. Common codes: `NO_SESSION`, `ACTIVITY_NOT_FOUND`, `BOOKING_NOT_FOUND`, `AMBIGUOUS_MEMBER`, `MEMBER_NOT_FOUND`, `MEMBER_SWITCH_FAILED`, `TIMEOUT`, `NOT_LOGGED_IN`, `SITE_ERROR`.
 
 Run `doctor` (no browser) to verify `.env`, session file, and Playwright before blaming the portal.

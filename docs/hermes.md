@@ -205,6 +205,16 @@ Hermes should call `mcp_eacli_check_availability` with `activity: "combat"`, `da
 
 For most users: run Hermes with **`terminal.backend: local`** on a machine where eacli is installed.
 
+## Multi-member cron jobs
+
+When booking the same class for multiple linked members (e.g. a household cron):
+
+1. Call `mcp_eacli_list_members` once to get exact names.
+2. Call `mcp_eacli_book_class` **once per member** with an explicit `member` parameter (same `activity` and `date`).
+3. Each call launches Playwright separately — expect **30–90 seconds per member**. Two members typically need **3–4 minutes** wall time; set Hermes `timeout: 180` or higher.
+4. After a failure (`TIMEOUT`, `MEMBER_SWITCH_FAILED`, or `NO_SESSION`), call `mcp_eacli_list_bookings` before retrying to see who is already booked. Do not retry in a tight loop.
+5. On `MEMBER_SWITCH_FAILED`, verify the portal manually once; a follow-up `book_class` call usually succeeds after the member slider state settles.
+
 ## Troubleshooting
 
 | Problem | What to do |
@@ -214,6 +224,9 @@ For most users: run Hermes with **`terminal.backend: local`** on a machine where
 | `SITE_ERROR` | Portal error page; try `login` again or `--debug` on CLI. |
 | Booking slow | Each MCP call launches Playwright; expect 30–90s per book/cancel. Increase `timeout` in Hermes MCP config. |
 | Wrong member booked | Always `list_members` first when multiple people are on the account. |
+| Second member fails / MCP unreachable | Ensure `timeout: 180`; avoid rapid retries; call `list_bookings` between attempts. Check for orphaned Chromium processes after failures (`pgrep -fl chromium`). |
+| `MEMBER_SWITCH_FAILED` | Member slider did not update; retry once after a few seconds or book manually in the portal. |
+| `TIMEOUT` | Portal or Playwright was slow; increase MCP timeout or retry after checking `list_bookings`. |
 
 ## CLI fallback (no MCP)
 
