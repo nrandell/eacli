@@ -63,7 +63,6 @@ test('groupBookingsBySession matches Nick/Hayley split', () => {
     (s) => s.date === 'Tue 19 May' && s.activity.replace(/\s/g, '').toUpperCase().includes('HIIT')
   );
   assert.deepEqual(hiitTue?.members, ['Nick Randell']);
-  assert.equal(hiitTue?.member, 'Nick Randell');
 
   const combat = sessions.find((s) => s.date === 'Thu 21 May');
   assert.deepEqual(combat?.members, ['Hayley Randell', 'Nick Randell']);
@@ -73,7 +72,6 @@ test('groupBookingsBySession matches Nick/Hayley split', () => {
 
   const bodyCombat = sessions.find((s) => s.date === 'Sun 24 May');
   assert.deepEqual(bodyCombat?.members, ['Hayley Randell', 'Nick Randell']);
-  assert.equal(bodyCombat?.member, undefined);
 
   const hiitTue26 = sessions.find((s) => s.date === 'Tue 26 May');
   assert.deepEqual(hiitTue26?.members, ['Hayley Randell', 'Nick Randell']);

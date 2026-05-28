@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-22
+
+### Breaking Changes
+
+- **`list_bookings` / `bookings list` output** — The legacy singular `member` field has been **removed entirely**. Responses now only contain the `members` array for every booking, even when only one person is booked on a session. Any code or agents that read the old `member` field must be updated to use `members` instead (which will always be present and will contain one or more names).
+
+### Changed
+
+- Bumped version to 1.3.0 (this release focuses on cleaning up the output shape after the robustness work in 1.2.1).
+
 ## [1.2.1] - 2026-05-22
 
 ### Fixed
@@ -16,7 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `parseManageBookings` is now significantly more tolerant (any row containing a valid cancel link inside the gvBookings table).
   - New `collectManageBookingRows` follows GridView pagination.
   - `getBookings` now explicitly switches to each linked member and collects the full (paged) Manage Bookings view in that context before merging. This guarantees correct `members[]` arrays even when the grid content is member-context dependent or uses shared identifiers for recurring series.
-- The final output shape (`members` array + optional legacy `member` for singles) is unchanged.
 
 ### Changed
 

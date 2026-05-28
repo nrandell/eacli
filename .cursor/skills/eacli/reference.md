@@ -57,13 +57,12 @@ Each item in `data.bookings`:
   "activity": "HIIT",
   "location": "Centre",
   "status": "Confirmed",
-  "members": ["Nick Randell"],
-  "member": "Nick Randell"
+  "members": ["Nick Randell"]
 }
 ```
 
-- **`members`** (canonical): who is booked on that class. Multiple names = both are on that session.
-- **`member`**: present only when exactly one person is booked (backward compatibility).
+- **`members`** (always use this): who is booked on that class. One or more names. Multiple names = multiple people are booked on that session.
+- There is **no** singular `member` field.
 - One object per class session, not one per person.
 
 ## Error codes

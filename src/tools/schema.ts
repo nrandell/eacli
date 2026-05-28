@@ -74,7 +74,7 @@ export const TOOL_METAS: ToolMeta[] = [
   {
     name: 'list_bookings',
     description:
-      'List upcoming bookings from Manage Bookings (paged + household rows). Each session has a members array naming who is booked; multiple names means both are on that class. One row per class session — do not treat comma-separated legacy member fields as proof both are booked; use members. Attribution is best-effort (GridView pagination + member context); for critical verification call list_members + check per member if needed.',
+      'List upcoming bookings from Manage Bookings (paged + household rows). Each session has a `members` array naming who is booked on that class. Always use the `members` array (never look for a singular `member` field — it no longer exists). Multiple names means multiple people are booked on that session. One object per class session. Attribution is best-effort (GridView pagination + member context); for critical verification call `list_members` + `check_availability` per member if needed.',
     inputSchema: toolInputSchemas.list_bookings,
   },
   {

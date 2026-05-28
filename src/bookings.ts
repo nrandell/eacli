@@ -22,10 +22,8 @@ export interface Booking {
   location: string;
   status: string;
   reference?: string;
-  /** Who is booked on this session (canonical). */
+  /** Who is booked on this session (canonical). Always use this array. */
   members: string[];
-  /** Set when exactly one member is booked (backward compatibility for agents). */
-  member?: string;
 }
 
 const MONTHS: Record<string, number> = {
@@ -76,22 +74,6 @@ function sortBookings(bookings: Booking[]): Booking[] {
   );
 }
 
-function applyMemberCompat(booking: Booking): Booking {
-  const base = {
-    date: booking.date,
-    time: booking.time,
-    activity: booking.activity,
-    location: booking.location,
-    status: booking.status,
-    members: booking.members,
-    ...(booking.reference !== undefined ? { reference: booking.reference } : {}),
-  };
-  if (booking.members.length === 1) {
-    return { ...base, member: booking.members[0]! };
-  }
-  return base;
-}
-
 /** Map one Manage Bookings row to a partial booking (single member). */
 export function manageRowToBooking(row: ManageBookingRow): Booking {
   const timePart = row.time.match(/(\d{1,2}:\d{2})/)?.[1] ?? row.time.trim();
@@ -134,7 +116,7 @@ export function groupBookingsBySession(rows: ManageBookingRow[]): Booking[] {
   for (const b of grouped) {
     b.members.sort((a, c) => a.localeCompare(c));
   }
-  return sortBookings(grouped.map(applyMemberCompat));
+  return sortBookings(grouped);
 }
 
 /** Parse upcoming bookings from the member home #upcomingPanel (fallback only). */
