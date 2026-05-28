@@ -104,3 +104,22 @@ test('regression: legacy upcoming-panel dedupe falsely marks both on Nick-only H
   assert.equal(grouped.length, 1);
   assert.deepEqual(grouped[0]!.members, ['Nick Randell']);
 });
+
+test('groupBookingsBySession merges correctly when rows arrive across simulated pages (pagination case)', () => {
+  // Simulate the collector accumulating page1 (only Nick for a future date) + page2 (Hayley for same session)
+  const page1Rows = [
+    { activity: 'Combat', date: 'Thu 4 Jun', time: '19:00', site: 'Centre', member: 'Nick Randell', cancelQaId: 'lnkbutton-Cancel-IDX1-Date&Time=04/06/2026' },
+  ];
+  const page2Rows = [
+    { activity: 'Combat', date: 'Thu 4 Jun', time: '19:00', site: 'Centre', member: 'Hayley Randell', cancelQaId: 'lnkbutton-Cancel-IDX2-Date&Time=04/06/2026' },
+  ];
+
+  // As the collector does: union then group
+  const combined = [...page1Rows, ...page2Rows] as any;
+  const sessions = groupBookingsBySession(combined);
+
+  const combat = sessions.find((s) => s.date === 'Thu 4 Jun');
+  assert.ok(combat, 'session from paged rows must be present');
+  assert.deepEqual(combat!.members.sort(), ['Hayley Randell', 'Nick Randell']);
+  assert.equal(combat!.member, undefined, 'multi-member session must not emit legacy singular member field');
+});

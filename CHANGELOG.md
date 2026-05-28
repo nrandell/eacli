@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-05-22
+
+### Fixed
+
+- **list_bookings for multi-member recurring classes** — Fixed incorrect attribution when the Manage Bookings grid only surfaces one household member for future instances of recurring Group Exercise classes (the original "single `member` + incomplete `members[]`" bug). The root causes were:
+  - Brittle row selector in `parseManageBookings` that missed rows using non-standard classes or column layouts.
+  - Deduplication logic (in both the collector and cross-context merging) that used `cancelQaId` as the primary key. Recurring bookings often share the same cancel ID / ActivityID across linked members, causing the second person's row to be dropped.
+- **Robust collection strategy**:
+  - `parseManageBookings` is now significantly more tolerant (any row containing a valid cancel link inside the gvBookings table).
+  - New `collectManageBookingRows` follows GridView pagination.
+  - `getBookings` now explicitly switches to each linked member and collects the full (paged) Manage Bookings view in that context before merging. This guarantees correct `members[]` arrays even when the grid content is member-context dependent or uses shared identifiers for recurring series.
+- The final output shape (`members` array + optional legacy `member` for singles) is unchanged.
+
+### Changed
+
+- Bumped version to 1.2.1.
+
 ## [1.2.0] - 2026-05-21
 
 ### Fixed

@@ -57,27 +57,176 @@ export function parseManageBookings(html: string): ManageBookingRow[] {
   const $ = cheerio.load(html);
   const rows: ManageBookingRow[] = [];
 
-  $('table[id*="gvBookings"] tbody tr.rowStyle, table[id*="gvBookings"] tbody tr.alternating').each((_, tr) => {
-    const tds = $(tr).find('td');
-    if (tds.length < 7) return;
+  const table = $('table[id*="gvBookings"]').first();
+  if (table.length === 0) {
+    if (process.env.DEBUG) console.log(chalk.gray('[debug] parseManageBookings: no gvBookings table found'));
+    return rows;
+  }
 
-    const cancelA = $(tr).find('a[data-qa-id*="lnkbutton-Cancel-"]');
-    if (cancelA.length === 0) return;
+  // Be much more permissive: any <tr> inside the table that contains a cancel link.
+  // Many real pages use additional or different row classes, or no special class at all.
+  const candidateRows = table.find('tbody tr, tr');
 
-    const qa = cancelA.attr('data-qa-id') ?? '';
-    if (!qa) return;
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] parseManageBookings: found ${candidateRows.length} candidate <tr> in gvBookings table`));
+  }
+
+  candidateRows.each((idx, tr) => {
+    const $tr = $(tr);
+    const tds = $tr.find('td');
+    const tdCount = tds.length;
+
+    const cancelA = $tr.find('a[data-qa-id*="lnkbutton-Cancel-"]');
+    const hasCancel = cancelA.length > 0;
+    const qa = hasCancel ? (cancelA.attr('data-qa-id') ?? '') : '';
+
+    // Skip obviously non-data rows (headers, pagers, empty, etc.)
+    if (!hasCancel || !qa) {
+      if (process.env.DEBUG && tdCount > 0) {
+        const firstCell = tds.first().text().trim().slice(0, 40);
+        // Only log a few skipped rows to avoid spam
+        if (idx < 3 || /page|next|header|pager/i.test(firstCell)) {
+          console.log(chalk.gray(`[debug]   skip row ${idx}: no usable cancel link (first cell: "${firstCell}")`));
+        }
+      }
+      return;
+    }
+
+    if (tdCount < 6) {
+      if (process.env.DEBUG) {
+        console.log(chalk.gray(`[debug]   skip row ${idx}: only ${tdCount} <td> cells (need ~6+)`));
+      }
+      return;
+    }
+
+    // Member is usually in column 5 (0-based). Be defensive: if it's empty, try 4 or 6.
+    let member = $(tds[5]).text().replace(/\s+/g, ' ').trim();
+    if (!member && tdCount > 4) member = $(tds[4]).text().replace(/\s+/g, ' ').trim();
+    if (!member && tdCount > 6) member = $(tds[6]).text().replace(/\s+/g, ' ').trim();
+
+    const activity = $(tds[0]).text().replace(/\s+/g, ' ').trim();
+    const date = $(tds[1]).text().replace(/\s+/g, ' ').trim();
+    const time = $(tds[2]).text().replace(/\s+/g, ' ').trim();
+    const site = tdCount > 3 ? $(tds[3]).text().replace(/\s+/g, ' ').trim() : '';
+
+    if (process.env.DEBUG) {
+      console.log(chalk.gray(`[debug]   accepted row ${idx}: ${date} ${time} "${activity}" member="${member || '(empty)'}"`));
+    }
 
     rows.push({
-      activity: $(tds[0]).text().replace(/\s+/g, ' ').trim(),
-      date: $(tds[1]).text().replace(/\s+/g, ' ').trim(),
-      time: $(tds[2]).text().replace(/\s+/g, ' ').trim(),
-      site: $(tds[3]).text().replace(/\s+/g, ' ').trim(),
-      member: $(tds[5]).text().replace(/\s+/g, ' ').trim(),
+      activity,
+      date,
+      time,
+      site,
+      member,
       cancelQaId: qa,
     });
   });
 
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] parseManageBookings: extracted ${rows.length} usable rows`));
+    const membersSeen = [...new Set(rows.map(r => r.member).filter(Boolean))];
+    if (membersSeen.length > 0) {
+      console.log(chalk.gray(`[debug]   members seen in this page: ${membersSeen.join(', ')}`));
+    }
+  }
+
   return rows;
+}
+
+/**
+ * Find a "next page" control in the current Manage Bookings GridView pager.
+ * Supports common ASP.NET patterns (visible "Next", numeric page links, __doPostBack hints).
+ * Returns the first enabled-looking locator or null.
+ */
+async function findNextPageControl(page: Page): Promise<import('playwright').Locator | null> {
+  // Try common visible "Next" / arrow controls first (fast path)
+  const nextText = page.locator('a:has-text("Next"), a[title*="Next" i], a:has-text(">"), a[title=">"], a[aria-label*="next" i]').first();
+  if (await nextText.isVisible().catch(() => false)) {
+    const disabled = await nextText.getAttribute('disabled').catch(() => null) ||
+      await nextText.evaluate((el) => el.classList.contains('disabled') || el.getAttribute('aria-disabled') === 'true').catch(() => false);
+    if (!disabled) return nextText;
+  }
+
+  // Look for pager container with page numbers; pick the first link that looks like a higher page or "Next"
+  const pagerLinks = page.locator('table[id*="gvBookings"] ~ * a, .GridPager a, [id*="gvBookings_pager"] a, td:has-text("Page") a');
+  const count = await pagerLinks.count().catch(() => 0);
+  for (let i = 0; i < Math.min(count, 10); i++) {
+    const link = pagerLinks.nth(i);
+    const txt = (await link.textContent().catch(() => ''))?.trim() ?? '';
+    const href = (await link.getAttribute('href').catch(() => '')) ?? '';
+    if (/next|>|»/i.test(txt) || /Page\$\d+/i.test(href) || /\b\d+\b/.test(txt)) {
+      const vis = await link.isVisible().catch(() => false);
+      if (vis) return link;
+    }
+  }
+
+  // Last resort: any __doPostBack link that smells like pagination (rarely the only option)
+  const postback = page.locator('a[href*="__doPostBack"][href*="Page"]').first();
+  if (await postback.isVisible().catch(() => false)) return postback;
+
+  return null;
+}
+
+/**
+ * Navigate to Manage Bookings and collect *all* rows by following GridView pagination.
+ * Deduplicates across pages while preserving different members on the same session.
+ * (Recurring classes often share the same cancelQaId/ActivityID for multiple household members.)
+ * Use this for list_bookings flows that need complete household attribution.
+ */
+export async function collectManageBookingRows(page: Page): Promise<ManageBookingRow[]> {
+  await page.goto(MANAGE_BOOKINGS_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  await ensureNoErrorPage(page, 'manage-bookings');
+
+  const allRows: ManageBookingRow[] = [];
+  const seen = new Set<string>();
+  let pages = 0;
+  const MAX_PAGES = 25; // safety cap for very large histories
+
+  while (pages < MAX_PAGES) {
+    pages++;
+    const html = await page.content();
+    const pageRows = parseManageBookings(html);
+
+    let added = 0;
+    for (const r of pageRows) {
+      // Key must include member name.
+      // On recurring bookings the cancelQaId is often the shared ActivityID for the whole series,
+      // so we cannot rely on it alone for uniqueness — otherwise we lose the second household member.
+      const key = `${r.date}|${r.time}|${normalizeActivity(r.activity)}|${r.member}|${r.cancelQaId || ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        allRows.push(r);
+        added++;
+      }
+    }
+
+    if (process.env.DEBUG) {
+      console.log(chalk.gray(`[debug] Manage Bookings page ${pages}: +${added} new rows (total ${allRows.length})`));
+    }
+
+    const next = await findNextPageControl(page);
+    if (!next) {
+      if (process.env.DEBUG) console.log(chalk.gray(`[debug] No more pager controls after ${pages} page(s)`));
+      break;
+    }
+
+    try {
+      await next.click({ timeout: 5000 });
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(250); // small settle for ASP.NET postbacks
+    } catch (e) {
+      if (process.env.DEBUG) console.log(chalk.gray(`[debug] Pager click failed or no more pages: ${e}`));
+      break;
+    }
+  }
+
+  if (process.env.DEBUG && pages > 1) {
+    console.log(chalk.gray(`[debug] Collected ${allRows.length} rows across ${pages} pages from Manage Bookings`));
+  }
+
+  return allRows;
 }
 
 function cancelIdFromQa(qa: string): string | undefined {

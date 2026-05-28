@@ -1,6 +1,6 @@
 {
   "name": "eacli",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "CLI and MCP server for Everyone Active gym bookings (Playwright)",
   "main": "dist/index.js",
   "engines": {

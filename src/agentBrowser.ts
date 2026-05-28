@@ -123,6 +123,7 @@ export async function getBookingsAgentBrowser(): Promise<Booking[]> {
     console.log(chalk.gray('[debug] Saved Manage Bookings HTML to .eacli-session/last-manage-bookings.html'));
   }
 
+  // Note: agent-browser path uses single-page parse only (no JS-driven pagination traversal like the Playwright collectManageBookingRows path).
   const rows = parseManageBookings(bodyHtml);
   let bookings = groupBookingsBySession(rows);
 

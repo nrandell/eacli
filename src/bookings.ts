@@ -5,8 +5,10 @@ import fs from 'fs';
 import * as cheerio from 'cheerio';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
 import { parseSessionDateLabel } from './favourites.js';
+import { getMembers, switchMember } from './members.js';
 import {
   MANAGE_BOOKINGS_URL,
+  collectManageBookingRows,
   parseManageBookings,
   type ManageBookingRow,
 } from './cancelBooking.js';
@@ -201,34 +203,135 @@ async function getBookingsFromUpcomingPanel(page: Page): Promise<Booking[]> {
 }
 
 export async function getBookings(page: Page): Promise<Booking[]> {
-  await page.goto(MANAGE_BOOKINGS_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-  await ensureNoErrorPage(page, 'manage-bookings');
+  // Discover linked members first (this also ensures we are on the member home).
+  // For accounts with >1 linked member we explicitly switch context to *each* one
+  // and collect the full (paged) Manage Bookings grid while that member is active.
+  // This guarantees correct attribution even when the portal only surfaces the
+  // "current" member's rows in a given context (the root cause of "only showed mine").
+  const linkedMembers = await getMembers(page);
 
-  const html = await page.content();
-  const rows = parseManageBookings(html);
-  let bookings = groupBookingsBySession(rows);
+  const allRows: ManageBookingRow[] = [];
+  const seen = new Set<string>();
+
+  const addRows = (rows: ManageBookingRow[]) => {
+    for (const r of rows) {
+      // Must always include member in the uniqueness key.
+      // Recurring bookings frequently share the same cancelQaId (the ActivityID) across household members.
+      // Using cancelQaId alone (via ||) would drop the second person's row.
+      const key = `${r.date}|${r.time}|${normalizeBookingActivity(r.activity)}|${r.member}|${r.cancelQaId || ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        allRows.push(r);
+      }
+    }
+  };
+
+  if (linkedMembers.length <= 1) {
+    if (process.env.DEBUG) {
+      console.log(chalk.gray(`[debug] ${linkedMembers.length === 0 ? 'No linked members' : 'Single linked member'} — collecting from current context only`));
+    }
+    const rows = await collectManageBookingRows(page);
+    addRows(rows);
+
+    if (process.env.DEBUG) {
+      try {
+        fs.mkdirSync('.eacli-session', { recursive: true });
+        fs.writeFileSync('.eacli-session/last-manage-bookings.html', await page.content());
+        console.log(chalk.gray(`[debug] Saved Manage Bookings HTML → .eacli-session/last-manage-bookings.html`));
+      } catch {}
+    }
+  } else {
+    if (process.env.DEBUG) {
+      console.log(
+        chalk.gray(`[debug] ${linkedMembers.length} linked members — collecting Manage Bookings rows while switched to each member for complete household attribution`)
+      );
+    }
+
+    for (const member of linkedMembers) {
+      try {
+        if (process.env.DEBUG) {
+          console.log(chalk.gray(`[debug] → switching to ${member.name} ...`));
+        }
+        await switchMember(page, member);
+
+        // Capture the member home page in this context (upcoming panel often reflects the current member)
+        if (process.env.DEBUG) {
+          try {
+            await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+            await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+            const homeHtml = await page.content();
+
+            fs.mkdirSync('.eacli-session', { recursive: true });
+            const safeName = member.name.replace(/[^a-z0-9]/gi, '_');
+            const homePath = `.eacli-session/last-home-${safeName}.html`;
+            fs.writeFileSync(homePath, homeHtml);
+            console.log(chalk.gray(`[debug]   Saved member home HTML for ${member.name} → ${homePath} (check upcoming panel)`));
+
+            // Diagnostic: parse what upcoming bookings are visible in *this* member's context
+            const upcoming = parseUpcomingBookings(homeHtml);
+            const upcomingSummary = upcoming.length > 0
+              ? upcoming.map(b => `${b.date} ${b.time} ${b.activity}`).join(' | ')
+              : '(none)';
+            console.log(chalk.gray(`[debug]   Upcoming panel for ${member.name} (${upcoming.length} items): ${upcomingSummary}`));
+          } catch (e) {
+            if (process.env.DEBUG) console.log(chalk.gray(`[debug]   Failed to capture/parse home for ${member.name}: ${e}`));
+          }
+        }
+
+        const rows = await collectManageBookingRows(page);
+        addRows(rows);
+
+        // Always save the HTML for this specific member context when debugging.
+        if (process.env.DEBUG) {
+          try {
+            fs.mkdirSync('.eacli-session', { recursive: true });
+            const safeName = member.name.replace(/[^a-z0-9]/gi, '_');
+            const path = `.eacli-session/last-manage-bookings-${safeName}.html`;
+            fs.writeFileSync(path, await page.content());
+            console.log(chalk.gray(`[debug]   Saved context HTML for ${member.name} → ${path}`));
+          } catch {}
+        }
+      } catch (err: unknown) {
+        if (process.env.DEBUG) {
+          console.log(chalk.yellow(`[debug]   Failed while collecting as ${member.name}: ${err instanceof Error ? err.message : err}`));
+        }
+        // Best-effort: continue with remaining members
+      }
+    }
+
+    if (process.env.DEBUG) {
+      const rawMembers = [...new Set(allRows.map(r => r.member))].filter(Boolean);
+      console.log(chalk.gray(`[debug] Raw 'member' values extracted from grid across all contexts: ${rawMembers.join(' | ') || '(none)'}`));
+      console.log(chalk.gray(`[debug] (If you only see one name here, the Manage Bookings grid itself is not varying by member context on this account.)`));
+    }
+  }
+
+  let bookings = groupBookingsBySession(allRows);
 
   if (process.env.DEBUG) {
     console.log(chalk.gray(`[debug] Page URL: ${page.url()}`));
     console.log(
       chalk.gray(
-        `[debug] Manage Bookings: ${rows.length} row(s) → ${bookings.length} session(s)`
+        `[debug] Manage Bookings (multi-context, paged): ${allRows.length} row(s) → ${bookings.length} session(s)`
       )
     );
   }
 
-  if (bookings.length === 0) {
-    if (rows.length === 0) {
-      try {
-        fs.mkdirSync('.eacli-session', { recursive: true });
-        fs.writeFileSync('.eacli-session/last-manage-bookings.html', html);
-        if (process.env.DEBUG) {
-          console.log(chalk.gray('[debug] Saved HTML to .eacli-session/last-manage-bookings.html'));
-        }
-      } catch {}
-    }
+  if (bookings.length === 0 && allRows.length === 0) {
+    try {
+      fs.mkdirSync('.eacli-session', { recursive: true });
+      fs.writeFileSync('.eacli-session/last-manage-bookings.html', await page.content());
+      if (process.env.DEBUG) {
+        console.log(chalk.gray('[debug] Saved HTML to .eacli-session/last-manage-bookings.html (fallback path)'));
+      }
+    } catch {}
     bookings = await getBookingsFromUpcomingPanel(page);
+  } else if (process.env.DEBUG) {
+    // In DEBUG, always leave a copy of the final Manage Bookings page for inspection
+    try {
+      fs.mkdirSync('.eacli-session', { recursive: true });
+      fs.writeFileSync('.eacli-session/last-manage-bookings.html', await page.content());
+    } catch {}
   }
 
   return bookings;

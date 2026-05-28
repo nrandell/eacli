@@ -85,7 +85,7 @@ program
   .description(
     'CLI to manage bookings at Everyone Active centres (uses Playwright). Session cookies are saved in .eacli-auth-state.json between runs.'
   )
-  .version('1.2.0')
+  .version('1.2.1')
   .option('--json', 'Emit JSON on stdout (for LLM / automation)')
   .hook('preAction', () => {
     setJsonMode(Boolean(program.opts<{ json?: boolean }>().json));
