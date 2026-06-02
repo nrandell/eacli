@@ -208,6 +208,9 @@ export function printAvailability(result: ListAvailabilityResult): void {
       const who = g.member ? `${g.member} · ` : '';
       const msg = g.pageMessage ?? 'No sessions';
       console.log(chalk.gray(`  ${who}${g.activityLabel}: ${msg}`));
+      if (g.pageMessage && /on behalf of/i.test(g.pageMessage)) {
+        console.log(chalk.gray('    (Known portal quirk for secondary members; explicit --member + precise date or browse path usually resolves.)'));
+      }
     }
     return;
   }
@@ -241,6 +244,9 @@ export function printAvailability(result: ListAvailabilityResult): void {
       const who = g.member ? `${g.member} · ` : '';
       const msg = g.pageMessage ?? 'No sessions in search window';
       console.log(chalk.gray(`  ${who}${g.activityLabel}: ${msg}`));
+      if (g.pageMessage && /on behalf of/i.test(g.pageMessage)) {
+        console.log(chalk.gray('    (Known portal quirk for secondary members via fav path; tool falls back to browse when possible.)'));
+      }
     }
   } else if (withoutSessions.length > 8) {
     console.log(chalk.gray(`\n${withoutSessions.length} other activities had no sessions in this window.`));

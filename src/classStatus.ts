@@ -91,6 +91,13 @@ export function getClassStatusPageMessage(html: string): string | undefined {
   return alert || undefined;
 }
 
+/** Detects page messages from QuickBook/fav path that often hide real slots for secondary members (e.g. Hayley). */
+function isMemberContextOrBookedEmptyMessage(msg: string | undefined): boolean {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  return /already booked/i.test(msg) || /booking on behalf of|you're booking on behalf/i.test(msg);
+}
+
 /** Wait for class status rows or a warning message after navigation. */
 export async function waitForClassStatusContent(page: Page): Promise<void> {
   const rows = page.locator('#ClassStatusWrapper .col-xs-12.div-row, #ClassStatusWrapper .motion.div-row');
@@ -277,9 +284,9 @@ export async function openClassStatus(page: Page, options: OpenClassStatusOption
   const sessions = parseClassStatusSessions(html);
   const pageMessage = getClassStatusPageMessage(html);
 
-  if (sessions.length === 0 && pageMessage && /already booked/i.test(pageMessage)) {
+  if (sessions.length === 0 && pageMessage && source === 'favourite' && isMemberContextOrBookedEmptyMessage(pageMessage)) {
     if (process.env.DEBUG) {
-      console.log(chalk.gray('[debug] QuickBook showed no slots (may be booked); trying browse path'));
+      console.log(chalk.gray('[debug] QuickBook/favourite showed no slots (may be member context "on behalf of" or already booked); trying browse path'));
     }
     activityLabel = await openViaBrowse(page, options.activity);
     source = 'browse';

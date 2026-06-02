@@ -57,3 +57,16 @@ Pass natural language through unchanged: `saturday`, `next sunday`, `today`, `20
 JSON errors include `error.code`. Common codes: `NO_SESSION`, `ACTIVITY_NOT_FOUND`, `BOOKING_NOT_FOUND`, `AMBIGUOUS_MEMBER`, `MEMBER_NOT_FOUND`, `MEMBER_SWITCH_FAILED`, `TIMEOUT`, `NOT_LOGGED_IN`, `SITE_ERROR`.
 
 Run `doctor` (no browser) to verify `.env`, session file, and Playwright before blaming the portal.
+
+## Known site quirks and pitfalls
+
+- **Member context (especially Hayley as secondary linked member)**: When Hayley (or other non-primary) is the currently selected member, QuickBook/favourite navigation to an activity's class status page frequently returns `sessions: []` + `pageMessage: "You're booking on behalf of Hayley Randell"` (or similar), *even when real slots exist*. This is a portal rendering quirk for household accounts in the selected-member context. 
+  - The tool now automatically falls back to the "Make a Booking" (browse) path when it sees 0 sessions + an "on behalf of" or "already booked" pageMessage after using a favourite.
+  - **Best practice**: Always pass the explicit full `member` name (e.g. "Hayley Randell") for multi-member accounts. Prefer precise dates (`DD/MM/YYYY` or `YYYY-MM-DD`) over "next thursday"/"today" — the latter often resolve to a class instance that is not yet published in the portal's default view or outside the booking window.
+  - `check_availability` will still surface the `pageMessage` (for awareness) alongside any sessions found.
+
+- **book_class confirmation is best-effort**: The call returns `{ confirmed: boolean, waitlisted: boolean, confirmationDetails?, finalUrl? }`. `confirmed: false` does *not* always mean the booking failed (possible race with another booker, success page text variant the heuristic missed, or extra on-behalf confirmation step). 
+  - The tool saves `.eacli-session/last-book-result.html` on every book attempt for diagnosis.
+  - **Always follow a `book_class` with `list_bookings`** (and use each booking's `members[]` array) + optionally a targeted `check_availability` to verify state before retrying. `list_bookings` switches member contexts to collect household bookings but remains best-effort on complex recurring cases.
+
+- Dates: Natural language is accepted and passed through, but for reliability with household members and far-future or edge-of-window classes, use explicit `DD/MM/YYYY` (UK) or `YYYY-MM-DD`. Vague dates are a common cause of "no sessions" even when the class exists on other dates.

@@ -26,9 +26,10 @@ function printBookResult(result: BookClassResult): void {
   if (result.confirmed) {
     console.log(chalk.green(`${action} ${result.activity} for ${result.member} (${result.sessionLabel}).`));
   } else {
+    const extra = result.confirmationDetails ? ` (${result.confirmationDetails})` : '';
     console.log(
       chalk.yellow(
-        `Submitted ${result.waitlisted ? 'waitlist' : 'booking'} for ${result.member}: ${result.activity} (${result.sessionLabel}). Check the portal to confirm.`
+        `Submitted ${result.waitlisted ? 'waitlist' : 'booking'} for ${result.member}: ${result.activity} (${result.sessionLabel}). Check the portal to confirm.${extra}`
       )
     );
   }

@@ -14,7 +14,7 @@ export const activityParam = z
 export const dateParam = z
   .string()
   .describe(
-    'Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)'
+    'Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes.'
   );
 
 export const toolInputShapes = {
@@ -62,7 +62,7 @@ export interface ToolMeta {
 }
 
 const DATE_HINT =
-  'Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026.';
+  'Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language.';
 
 export const TOOL_METAS: ToolMeta[] = [
   {

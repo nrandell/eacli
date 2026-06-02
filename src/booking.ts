@@ -23,9 +23,13 @@ export interface BookClassResult {
   sessionLabel: string;
   confirmed: boolean;
   waitlisted: boolean;
+  /** Short snippet of success/failure text from final page (when available). */
+  confirmationDetails?: string;
+  /** Final URL after the confirm step (for diagnostics). */
+  finalUrl?: string;
 }
 
-async function confirmBookingBasket(page: Page): Promise<boolean> {
+async function confirmBookingBasket(page: Page): Promise<{ confirmed: boolean; confirmationDetails?: string; finalUrl?: string }> {
   try {
     await page.waitForURL(/mrmConfirmBooking\.aspx/i, { timeout: 30000 });
   } catch {
@@ -45,10 +49,20 @@ async function confirmBookingBasket(page: Page): Promise<boolean> {
 
   const finalUrl = page.url();
   const bodyText = (await page.textContent('body')) ?? '';
-  return (
-    /booking confirmed|successfully booked|thank you|booking complete/i.test(bodyText) ||
-    /memberHomePage|mrmViewMyBookings/i.test(finalUrl)
-  );
+
+  const successRe = /booking confirmed|successfully booked|thank you|booking complete|has been booked|your booking|booking received|class confirmed/i;
+  const confirmed = successRe.test(bodyText) || /memberHomePage|mrmViewMyBookings/i.test(finalUrl);
+
+  let confirmationDetails: string | undefined;
+  if (confirmed) {
+    const okMatch = bodyText.match(successRe);
+    if (okMatch) confirmationDetails = okMatch[0].trim().slice(0, 200);
+  } else {
+    const failMatch = bodyText.match(/(sorry|full|unable|already|error|failed|no longer available|not available)[^.]*[.!?]?/i);
+    if (failMatch) confirmationDetails = failMatch[0].trim().slice(0, 200);
+  }
+
+  return { confirmed, ...(confirmationDetails ? { confirmationDetails } : {}), finalUrl };
 }
 
 /** Book a Group Exercise class for a member on a given date (browse or QuickBook). */
@@ -119,12 +133,18 @@ export async function bookClass(page: Page, options: BookClassOptions): Promise<
     throw new Error(`Session ${sessionLabel} has no Book or Waitlist button (may be full).`);
   }
 
-  const confirmed = await confirmBookingBasket(page);
+  const basketResult = await confirmBookingBasket(page);
+  const { confirmed, confirmationDetails, finalUrl } = basketResult;
 
-  if (process.env.DEBUG) {
-    console.log(chalk.gray(`[debug] Final URL: ${page.url()}`));
+  // Always save final page for book attempts (critical for diagnosing confirmed:false cases, races, on-behalf flows).
+  // Overwrites last result; DEBUG additionally logs URL.
+  try {
     fs.mkdirSync('.eacli-session', { recursive: true });
     fs.writeFileSync('.eacli-session/last-book-result.html', await page.content());
+  } catch {}
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] Final URL: ${finalUrl || page.url()}`));
+    if (confirmationDetails) console.log(chalk.gray(`[debug] Confirmation details: ${confirmationDetails}`));
   }
 
   return {
@@ -133,5 +153,7 @@ export async function bookClass(page: Page, options: BookClassOptions): Promise<
     sessionLabel,
     confirmed,
     waitlisted,
+    ...(confirmationDetails ? { confirmationDetails } : {}),
+    ...(finalUrl ? { finalUrl } : {}),
   };
 }
