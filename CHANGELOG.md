@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Self-documenting agent integration** — [AGENTS.md](AGENTS.md) (repo root) and [docs/agents.md](docs/agents.md) as the canonical guide for OpenClaw, Cursor, and other MCP hosts. Cursor skill and Hermes doc now point here.
+
+### Fixed
+
+- **list_bookings / cancel_booking missing confirmed sessions** — Everyone Active's Manage Bookings page now renders separate `gvBookings` tables per section (e.g. "Bookings on Waiting List" and "Confirmed bookings"). `parseManageBookings` previously read only the first table, so accounts with waitlisted classes saw incomplete lists (often a single session). The parser now iterates all tables; `status` reflects the section (`Confirmed` vs `Waiting List`). `cancel_booking` uses the same paged collector as `list_bookings`.
+
 ## [1.4.0] - 2026-06-02
 
 ### Fixed

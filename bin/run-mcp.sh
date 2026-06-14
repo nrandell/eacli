@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wrapper for Hermes / other MCP hosts that do not set a working directory.
+# Wrapper for OpenClaw, Hermes, and other MCP hosts that do not set a working directory.
 # Resolves to the eacli repo root and starts the MCP server on stdio.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

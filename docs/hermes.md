@@ -1,5 +1,7 @@
 # Using eacli with [Hermes Agent](https://hermes-agent.nousresearch.com/)
 
+> **Not using Hermes?** Use the host-neutral guide: **[agents.md](agents.md)** and **[AGENTS.md](../AGENTS.md)** (includes OpenClaw).
+
 Hermes is an autonomous agent from [Nous Research](https://nousresearch.com/) that can call external tools via **MCP** (Model Context Protocol). eacli ships an MCP server so Hermes can list bookings, check availability, book, and cancel on Everyone Active — from Telegram, Discord, CLI, or other channels Hermes supports.
 
 Official Hermes MCP docs:
@@ -145,7 +147,7 @@ Use the **original** tool names in `include` / `exclude`, not the `mcp_eacli_` p
 
 ## Teach Hermes how to behave
 
-Hermes does not load Cursor’s `.cursor/skills/eacli/`. Add booking rules to agent context, for example in `~/.hermes/SOUL.md`:
+Hermes does not load Cursor’s `.cursor/skills/eacli/` or repo `AGENTS.md` automatically. Add booking rules to agent context (e.g. `~/.hermes/SOUL.md`), or paste from **[agents.md](agents.md)**:
 
 ```markdown
 ## Everyone Active (eacli MCP)
@@ -158,10 +160,10 @@ When the user asks to book, cancel, or check gym classes:
 4. Always ask the user to confirm before `mcp_eacli_book_class` or `mcp_eacli_cancel_booking`.
 5. Dates: saturday, next sunday, 2026-05-25, 25/05/2026.
 6. On NOT_LOGGED_IN errors, tell the user to run login once from the eacli repo: `npm run dev -- login`.
-7. For `mcp_eacli_list_bookings`, summarize per class session and list who is booked using each booking's **members** array. Only say both people are on a class when `members` has two names.
+7. For `mcp_eacli_list_bookings`, summarize per class session and list who is booked using each booking's **members** array. Only say both people are on a class when `members` has two names. Mention **status** when it is `Waiting List` (not a confirmed spot).
 ```
 
-See also [`.cursor/skills/eacli/SKILL.md`](../.cursor/skills/eacli/SKILL.md) for the full workflow (same logic).
+See **[agents.md](agents.md)** for the full workflow (canonical; same logic as the Cursor skill).
 
 ## Example conversations
 

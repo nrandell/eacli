@@ -21,7 +21,7 @@
       "type": "function",
       "function": {
         "name": "list_bookings",
-        "description": "List upcoming bookings from Manage Bookings (paged + household rows). Each session has a `members` array naming who is booked on that class. Always use the `members` array. Multiple names means multiple people are booked on that session. One object per class session. Attribution is best-effort.",
+        "description": "List upcoming bookings from Manage Bookings (all gvBookings tables: waitlist + confirmed, paged + household rows). Each session has a `members` array naming who is booked on that class and a `status` of \"Confirmed\" or \"Waiting List\". Always use the `members` array (never look for a singular `member` field — it no longer exists). Multiple names means multiple people are booked on that session. One object per class session. Attribution is best-effort (GridView pagination + member context); for critical verification call `list_members` + `check_availability` per member if needed.",
         "parameters": {
           "type": "object",
           "properties": {}
@@ -47,7 +47,7 @@
       "type": "function",
       "function": {
         "name": "check_availability",
-        "description": "Check bookable or waitlist slots for a Group Exercise class. Always pass activity and date (do not scan all activities). Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Call before book_class and show the user available times.",
+        "description": "Check bookable or waitlist slots for a Group Exercise class. Always pass activity and date (do not scan all activities). Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Call before book_class and show the user available times.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -57,7 +57,7 @@
             },
             "date": {
               "type": "string",
-              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)"
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes."
             },
             "member": {
               "type": "string"
@@ -74,7 +74,7 @@
       "type": "function",
       "function": {
         "name": "book_class",
-        "description": "Book a Group Exercise class. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Requires user confirmation after check_availability. Books the first matching session on that day.",
+        "description": "Book a Group Exercise class. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Requires user confirmation after check_availability. Books the first matching session on that day.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -84,7 +84,7 @@
             },
             "date": {
               "type": "string",
-              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)"
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes."
             },
             "member": {
               "type": "string"
@@ -101,7 +101,7 @@
       "type": "function",
       "function": {
         "name": "cancel_booking",
-        "description": "Cancel an existing booking. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Requires user confirmation. Match by activity and date.",
+        "description": "Cancel an existing booking. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Requires user confirmation. Match by activity and date.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -111,7 +111,7 @@
             },
             "date": {
               "type": "string",
-              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026)"
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes."
             },
             "member": {
               "type": "string"
@@ -150,19 +150,5 @@
         }
       }
     }
-  ],
-  "errorCodes": {
-    "NO_SESSION": "No class on that date",
-    "ACTIVITY_NOT_FOUND": "Activity not in Group Exercise list",
-    "BOOKING_NOT_FOUND": "No matching booking to cancel",
-    "AMBIGUOUS_MEMBER": "Multiple bookings match — need member param",
-    "MEMBER_NOT_FOUND": "Name not in linked members",
-    "MEMBER_SWITCH_FAILED": "Could not switch linked member slider",
-    "NOT_LOGGED_IN": "Login required",
-    "SITE_ERROR": "Portal error page",
-    "NO_SLOTS": "No book/waitlist button",
-    "TIMEOUT": "Playwright navigation or locator timeout",
-    "VALIDATION_ERROR": "Bad args or missing member",
-    "UNKNOWN": "Other"
-  }
+  ]
 }

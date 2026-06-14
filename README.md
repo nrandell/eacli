@@ -2,7 +2,9 @@
 
 Command-line tool to manage **Everyone Active** gym bookings via the official Connect portal ([book.everyoneactive.com](https://book.everyoneactive.com/Connect/)). It uses **Playwright** to log in, reuse your session, and book or cancel **Group Exercise** classes.
 
-Designed for personal use and for **AI agents** (Cursor, [Hermes Agent](https://hermes-agent.nousresearch.com/), OpenClaw, etc.) via **MCP** or **`--json`** output.
+Designed for personal use and for **AI agents** ([OpenClaw](https://docs.openclaw.ai/), Cursor, Hermes, etc.) via **MCP** or **`--json`** output.
+
+**Agents:** start with **[AGENTS.md](AGENTS.md)** and **[docs/agents.md](docs/agents.md)** — setup, workflows, and portal quirks live in the repo.
 
 ## Requirements
 
@@ -26,7 +28,7 @@ cp .env.example .env
 # Edit .env: USERNAME and PASSWORD for Everyone Active
 
 npm run build          # compiles TypeScript to dist/
-chmod +x bin/run-mcp.sh   # needed for Hermes MCP wrapper
+chmod +x bin/run-mcp.sh   # MCP wrapper (OpenClaw, Hermes, etc.)
 ```
 
 ### Verify and log in
@@ -112,59 +114,22 @@ npm run dev -- availability list --activity combat --date sunday --json
 
 OpenAI-style tool definitions (shell agents): **[docs/tools.json](docs/tools.json)** — regenerate with `npm run generate-tools`.
 
-## Hermes Agent
+## AI agents (OpenClaw, Cursor, MCP)
 
-[Hermes](https://hermes-agent.nousresearch.com/) connects to eacli over **MCP** so you can book from Telegram, Discord, Slack, CLI, etc.
+**[AGENTS.md](AGENTS.md)** — short rules for any agent host.
 
-**Full guide:** **[docs/hermes.md](docs/hermes.md)**
+**[docs/agents.md](docs/agents.md)** — full guide: OpenClaw `mcp add`, Cursor config, workflows, JSON shapes, troubleshooting.
 
-Quick setup:
+Quick OpenClaw setup (after install + `login`):
 
-1. Install Hermes: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` then `hermes setup`
-2. Install eacli (above) on the **same machine** and run `login` once
-3. Add to `~/.hermes/config.yaml`:
-
-Replace `<EACLI_ROOT>` with the absolute path where you cloned this repo (e.g. expand `~/eacli` to a full path).
-
-```yaml
-mcp_servers:
-  eacli:
-    command: "<EACLI_ROOT>/bin/run-mcp.sh"
-    args: []
-    timeout: 180
-    tools:
-      resources: false
-      prompts: false
+```bash
+openclaw mcp add eacli --command <EACLI_ROOT>/bin/run-mcp.sh --timeout 180
+openclaw mcp doctor eacli --probe
 ```
 
-4. In Hermes chat: `/reload-mcp`
-5. Ask: *“What am I booked into?”* or *“Book me onto combat next sunday”* (Hermes should confirm before booking)
+MCP tools: `list_members`, `list_bookings`, `check_availability`, `book_class`, `cancel_booking`, `login`, `doctor`.
 
-Hermes exposes tools as `mcp_eacli_list_members`, `mcp_eacli_check_availability`, `mcp_eacli_book_class`, etc. See the [Hermes MCP config reference](https://hermes-agent.nousresearch.com/docs/reference/mcp-config-reference).
-
-## Cursor and other LLM hosts
-
-### MCP (Cursor)
-
-```json
-{
-  "mcpServers": {
-    "eacli": {
-      "command": "npm",
-      "args": ["run", "mcp"],
-      "cwd": "<EACLI_ROOT>"
-    }
-  }
-}
-```
-
-Set `cwd` to the absolute path of your clone (the directory that contains `package.json`).
-
-Tools: `list_members`, `list_bookings`, `check_availability`, `book_class`, `cancel_booking`, `login`, `doctor`.
-
-### Agent skill (Cursor)
-
-[`.cursor/skills/eacli/SKILL.md`](.cursor/skills/eacli/SKILL.md) — natural-language workflows, “me” resolution, confirm before book/cancel.
+Cursor also has [`.cursor/skills/eacli/SKILL.md`](.cursor/skills/eacli/SKILL.md) (points at `docs/agents.md`). Hermes users: **[docs/hermes.md](docs/hermes.md)**.
 
 ## Build and development
 

@@ -8,6 +8,10 @@ description: >-
 
 # Everyone Active CLI (eacli)
 
+**Canonical agent documentation (all hosts):** [docs/agents.md](../../../docs/agents.md) and [AGENTS.md](../../../AGENTS.md) in the repo root.
+
+This skill summarizes the same rules for Cursor. If anything conflicts, prefer `docs/agents.md`.
+
 ## Tools
 
 Use **eacli MCP tools** when the MCP server is enabled (`npm run mcp` in this repo).
@@ -28,7 +32,7 @@ See [reference.md](reference.md) for command mapping, error codes, and JSON shap
 |-------------|--------|
 | Book a class ("book me onto combat next sunday") | `list_members` → resolve "me" → `check_availability` → **confirm with user** → `book_class` |
 | What's available? | `check_availability` with **activity and date** (never scan all activities) |
-| What am I booked into? | `list_bookings` — use each session's `members` array (not comma-separated `member`) |
+| What am I booked into? | `list_bookings` — use each session's `members` array; note `status` (especially `Waiting List`) |
 | Cancel a class | `list_bookings` (optional) → **confirm** → `cancel_booking` |
 | Who can I book for? | `list_members` |
 
@@ -47,6 +51,7 @@ See [reference.md](reference.md) for command mapping, error codes, and JSON shap
 - Call `check_availability` before booking. If no `available` or `waitlist` session, stop and report.
 - For availability, **always** pass `activity` and `date`. A full scan without activity takes many minutes.
 - On `NOT_LOGGED_IN` or session errors → ask the user to run `eacli login` once (or call `login` with `force: true`).
+- MCP timeout should be **≥ 180s** (Playwright is slow).
 
 ## Dates
 
@@ -60,13 +65,8 @@ Run `doctor` (no browser) to verify `.env`, session file, and Playwright before 
 
 ## Known site quirks and pitfalls
 
-- **Member context (especially Hayley as secondary linked member)**: When Hayley (or other non-primary) is the currently selected member, QuickBook/favourite navigation to an activity's class status page frequently returns `sessions: []` + `pageMessage: "You're booking on behalf of Hayley Randell"` (or similar), *even when real slots exist*. This is a portal rendering quirk for household accounts in the selected-member context. 
-  - The tool now automatically falls back to the "Make a Booking" (browse) path when it sees 0 sessions + an "on behalf of" or "already booked" pageMessage after using a favourite.
-  - **Best practice**: Always pass the explicit full `member` name (e.g. "Hayley Randell") for multi-member accounts. Prefer precise dates (`DD/MM/YYYY` or `YYYY-MM-DD`) over "next thursday"/"today" — the latter often resolve to a class instance that is not yet published in the portal's default view or outside the booking window.
-  - `check_availability` will still surface the `pageMessage` (for awareness) alongside any sessions found.
+Full detail: [docs/agents.md](../../../docs/agents.md#portal-quirks).
 
-- **book_class confirmation is best-effort**: The call returns `{ confirmed: boolean, waitlisted: boolean, confirmationDetails?, finalUrl? }`. `confirmed: false` does *not* always mean the booking failed (possible race with another booker, success page text variant the heuristic missed, or extra on-behalf confirmation step). 
-  - The tool saves `.eacli-session/last-book-result.html` on every book attempt for diagnosis.
-  - **Always follow a `book_class` with `list_bookings`** (and use each booking's `members[]` array) + optionally a targeted `check_availability` to verify state before retrying. `list_bookings` switches member contexts to collect household bookings but remains best-effort on complex recurring cases.
-
-- Dates: Natural language is accepted and passed through, but for reliability with household members and far-future or edge-of-window classes, use explicit `DD/MM/YYYY` (UK) or `YYYY-MM-DD`. Vague dates are a common cause of "no sessions" even when the class exists on other dates.
+- **Manage Bookings layout**: separate waitlist and confirmed tables; `list_bookings` parses all. `status` is `Confirmed` or `Waiting List`.
+- **Member context (secondary linked members)**: QuickBook/fav path can return empty sessions + "on behalf of" banner; tools fall back to browse. Pass explicit full `member` name and precise dates.
+- **`book_class` confirmation is best-effort**: always follow with `list_bookings` to verify. Saves `.eacli-session/last-book-result.html` on every attempt.

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { parseManageBookings } from '../src/cancelBooking.js';
+import { findMatchingManageBookingRow, parseManageBookings } from '../src/cancelBooking.js';
 import {
   bookingSessionKey,
   groupBookingsBySession,
@@ -106,10 +106,10 @@ test('regression: legacy upcoming-panel dedupe falsely marks both on Nick-only H
 test('groupBookingsBySession merges correctly when rows arrive across simulated pages (pagination case)', () => {
   // Simulate the collector accumulating page1 (only Nick for a future date) + page2 (Hayley for same session)
   const page1Rows = [
-    { activity: 'Combat', date: 'Thu 4 Jun', time: '19:00', site: 'Centre', member: 'Nick Randell', cancelQaId: 'lnkbutton-Cancel-IDX1-Date&Time=04/06/2026' },
+    { activity: 'Combat', date: 'Thu 4 Jun', time: '19:00', site: 'Centre', member: 'Nick Randell', cancelQaId: 'lnkbutton-Cancel-IDX1-Date&Time=04/06/2026', status: 'Confirmed' },
   ];
   const page2Rows = [
-    { activity: 'Combat', date: 'Thu 4 Jun', time: '19:00', site: 'Centre', member: 'Hayley Randell', cancelQaId: 'lnkbutton-Cancel-IDX2-Date&Time=04/06/2026' },
+    { activity: 'Combat', date: 'Thu 4 Jun', time: '19:00', site: 'Centre', member: 'Hayley Randell', cancelQaId: 'lnkbutton-Cancel-IDX2-Date&Time=04/06/2026', status: 'Confirmed' },
   ];
 
   // As the collector does: union then group
@@ -120,4 +120,44 @@ test('groupBookingsBySession merges correctly when rows arrive across simulated 
   assert.ok(combat, 'session from paged rows must be present');
   assert.deepEqual(combat!.members.sort(), ['Hayley Randell', 'Nick Randell']);
   assert.equal(combat!.member, undefined, 'multi-member session must not emit legacy singular member field');
+});
+
+test('parseManageBookings reads all gvBookings tables (waitlist + confirmed)', () => {
+  const rows = parseManageBookings(loadFixture('manage-bookings-waitlist-and-confirmed.html'));
+  assert.equal(rows.length, 10);
+
+  const waitlist = rows.filter((r) => r.status === 'Waiting List');
+  const confirmed = rows.filter((r) => r.status === 'Confirmed');
+  assert.equal(waitlist.length, 2);
+  assert.equal(confirmed.length, 8);
+});
+
+test('groupBookingsBySession groups waitlist + confirmed into five sessions', () => {
+  const rows = parseManageBookings(loadFixture('manage-bookings-waitlist-and-confirmed.html'));
+  const sessions = groupBookingsBySession(rows);
+
+  assert.equal(sessions.length, 5);
+
+  const combat = sessions.find((s) => s.date === 'Thu 18 Jun');
+  assert.ok(combat);
+  assert.equal(combat!.status, 'Waiting List');
+  assert.deepEqual(combat!.members.sort(), ['Hayley Randell', 'Nick Randell']);
+
+  const hiitSat13 = sessions.find((s) => s.date === 'Sat 13 Jun');
+  assert.ok(hiitSat13);
+  assert.equal(hiitSat13!.status, 'Confirmed');
+  assert.deepEqual(hiitSat13!.members.sort(), ['Hayley Randell', 'Nick Randell']);
+});
+
+test('findMatchingManageBookingRow locates confirmed HIIT when waitlist table is present', () => {
+  const rows = parseManageBookings(loadFixture('manage-bookings-waitlist-and-confirmed.html'));
+  const row = findMatchingManageBookingRow(rows, {
+    activity: 'hiit',
+    date: 'saturday',
+    memberName: 'Nick Randell',
+  });
+
+  assert.equal(row.date, 'Sat 13 Jun');
+  assert.equal(row.member, 'Nick Randell');
+  assert.equal(row.status, 'Confirmed');
 });

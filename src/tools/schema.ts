@@ -74,7 +74,7 @@ export const TOOL_METAS: ToolMeta[] = [
   {
     name: 'list_bookings',
     description:
-      'List upcoming bookings from Manage Bookings (paged + household rows). Each session has a `members` array naming who is booked on that class. Always use the `members` array (never look for a singular `member` field — it no longer exists). Multiple names means multiple people are booked on that session. One object per class session. Attribution is best-effort (GridView pagination + member context); for critical verification call `list_members` + `check_availability` per member if needed.',
+      'List upcoming bookings from Manage Bookings (all gvBookings tables: waitlist + confirmed, paged + household rows). Each session has a `members` array naming who is booked on that class and a `status` of "Confirmed" or "Waiting List". Always use the `members` array (never look for a singular `member` field — it no longer exists). Multiple names means multiple people are booked on that session. One object per class session. Attribution is best-effort (GridView pagination + member context); for critical verification call `list_members` + `check_availability` per member if needed.',
     inputSchema: toolInputSchemas.list_bookings,
   },
   {

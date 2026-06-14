@@ -1,9 +1,11 @@
 # Documentation
 
-| Doc | Description |
-|-----|-------------|
-| [examples.md](examples.md) | CLI examples and sample JSON |
-| [hermes.md](hermes.md) | [Hermes Agent](https://hermes-agent.nousresearch.com/) + MCP setup |
-| [tools.json](tools.json) | OpenAI-style tool definitions (`npm run generate-tools` to refresh) |
+| Doc | Audience | Description |
+|-----|----------|-------------|
+| **[agents.md](agents.md)** | **AI agents (OpenClaw, Cursor, MCP)** | Canonical setup, workflows, JSON shapes, portal quirks |
+| [../AGENTS.md](../AGENTS.md) | AI agents | Short entry point — rules + links |
+| [examples.md](examples.md) | Humans + agents | CLI examples and sample JSON |
+| [tools.json](tools.json) | Shell agents without MCP | OpenAI-style tool defs (`npm run generate-tools`) |
+| [hermes.md](hermes.md) | Hermes users only | Optional Hermes-specific MCP setup |
 
-In all docs, **`<EACLI_ROOT>`** is a placeholder for the absolute path to your clone of this repository.
+**`<EACLI_ROOT>`** in all docs = absolute path to this repository (directory with `package.json`).

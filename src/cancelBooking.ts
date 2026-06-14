@@ -16,6 +16,7 @@ export interface ManageBookingRow {
   site: string;
   member: string;
   cancelQaId: string;
+  status: string;
 }
 
 export interface CancelBookingOptions {
@@ -52,23 +53,43 @@ function rowSessionDate(row: ManageBookingRow): Date | null {
   return parseSessionDateLabel(`${row.date}, ${timePart}`);
 }
 
-/** Parse rows from Manage Bookings (mrmViewMyBookings.aspx). */
-export function parseManageBookings(html: string): ManageBookingRow[] {
-  const $ = cheerio.load(html);
-  const rows: ManageBookingRow[] = [];
+function statusFromCaption(caption: string): string | undefined {
+  const text = caption.replace(/\s+/g, ' ').trim();
+  if (/waiting\s*list/i.test(text)) return 'Waiting List';
+  if (/confirmed/i.test(text)) return 'Confirmed';
+  return undefined;
+}
 
-  const table = $('table[id*="gvBookings"]').first();
-  if (table.length === 0) {
-    if (process.env.DEBUG) console.log(chalk.gray('[debug] parseManageBookings: no gvBookings table found'));
-    return rows;
-  }
+function statusFromCancelQa(qa: string): string | undefined {
+  const match = qa.match(/Status=(\w+)/i);
+  if (!match?.[1]) return undefined;
+  const raw = match[1];
+  if (/waitinglist/i.test(raw)) return 'Waiting List';
+  if (/confirmed/i.test(raw)) return 'Confirmed';
+  return raw;
+}
 
-  // Be much more permissive: any <tr> inside the table that contains a cancel link.
-  // Many real pages use additional or different row classes, or no special class at all.
-  const candidateRows = table.find('tbody tr, tr');
+function inferSectionStatus($table: cheerio.Cheerio<any>, cancelQa: string): string {
+  const caption = $table.find('caption').text();
+  return statusFromCaption(caption) ?? statusFromCancelQa(cancelQa) ?? 'Confirmed';
+}
+
+function parseManageBookingsTable(
+  $: cheerio.CheerioAPI,
+  table: any,
+  tableIdx: number,
+  rows: ManageBookingRow[]
+): void {
+  const $table = $(table);
+  const candidateRows = $table.find('tbody tr, tr');
 
   if (process.env.DEBUG) {
-    console.log(chalk.gray(`[debug] parseManageBookings: found ${candidateRows.length} candidate <tr> in gvBookings table`));
+    const tableId = $table.attr('id') ?? `(table ${tableIdx})`;
+    console.log(
+      chalk.gray(
+        `[debug] parseManageBookings: table ${tableIdx + 1} (${tableId}): ${candidateRows.length} candidate <tr>`
+      )
+    );
   }
 
   candidateRows.each((idx, tr) => {
@@ -80,11 +101,9 @@ export function parseManageBookings(html: string): ManageBookingRow[] {
     const hasCancel = cancelA.length > 0;
     const qa = hasCancel ? (cancelA.attr('data-qa-id') ?? '') : '';
 
-    // Skip obviously non-data rows (headers, pagers, empty, etc.)
     if (!hasCancel || !qa) {
       if (process.env.DEBUG && tdCount > 0) {
         const firstCell = tds.first().text().trim().slice(0, 40);
-        // Only log a few skipped rows to avoid spam
         if (idx < 3 || /page|next|header|pager/i.test(firstCell)) {
           console.log(chalk.gray(`[debug]   skip row ${idx}: no usable cancel link (first cell: "${firstCell}")`));
         }
@@ -99,7 +118,6 @@ export function parseManageBookings(html: string): ManageBookingRow[] {
       return;
     }
 
-    // Member is usually in column 5 (0-based). Be defensive: if it's empty, try 4 or 6.
     let member = $(tds[5]).text().replace(/\s+/g, ' ').trim();
     if (!member && tdCount > 4) member = $(tds[4]).text().replace(/\s+/g, ' ').trim();
     if (!member && tdCount > 6) member = $(tds[6]).text().replace(/\s+/g, ' ').trim();
@@ -108,9 +126,14 @@ export function parseManageBookings(html: string): ManageBookingRow[] {
     const date = $(tds[1]).text().replace(/\s+/g, ' ').trim();
     const time = $(tds[2]).text().replace(/\s+/g, ' ').trim();
     const site = tdCount > 3 ? $(tds[3]).text().replace(/\s+/g, ' ').trim() : '';
+    const status = inferSectionStatus($table, qa);
 
     if (process.env.DEBUG) {
-      console.log(chalk.gray(`[debug]   accepted row ${idx}: ${date} ${time} "${activity}" member="${member || '(empty)'}"`));
+      console.log(
+        chalk.gray(
+          `[debug]   accepted row ${idx}: ${date} ${time} "${activity}" member="${member || '(empty)'}" status="${status}"`
+        )
+      );
     }
 
     rows.push({
@@ -120,12 +143,33 @@ export function parseManageBookings(html: string): ManageBookingRow[] {
       site,
       member,
       cancelQaId: qa,
+      status,
     });
+  });
+}
+
+/** Parse rows from Manage Bookings (mrmViewMyBookings.aspx). */
+export function parseManageBookings(html: string): ManageBookingRow[] {
+  const $ = cheerio.load(html);
+  const rows: ManageBookingRow[] = [];
+
+  const tables = $('table[id*="gvBookings"]');
+  if (tables.length === 0) {
+    if (process.env.DEBUG) console.log(chalk.gray('[debug] parseManageBookings: no gvBookings table found'));
+    return rows;
+  }
+
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] parseManageBookings: found ${tables.length} gvBookings table(s)`));
+  }
+
+  tables.each((tableIdx, table) => {
+    parseManageBookingsTable($, table, tableIdx, rows);
   });
 
   if (process.env.DEBUG) {
     console.log(chalk.gray(`[debug] parseManageBookings: extracted ${rows.length} usable rows`));
-    const membersSeen = [...new Set(rows.map(r => r.member).filter(Boolean))];
+    const membersSeen = [...new Set(rows.map((r) => r.member).filter(Boolean))];
     if (membersSeen.length > 0) {
       console.log(chalk.gray(`[debug]   members seen in this page: ${membersSeen.join(', ')}`));
     }
@@ -233,7 +277,10 @@ function cancelIdFromQa(qa: string): string | undefined {
   return qa.match(/Cancel-ID(\S+)/)?.[1];
 }
 
-function findMatchingRow(rows: ManageBookingRow[], options: CancelBookingOptions): ManageBookingRow {
+export function findMatchingManageBookingRow(
+  rows: ManageBookingRow[],
+  options: CancelBookingOptions
+): ManageBookingRow {
   const targetDate = resolveTargetDate(options.date);
   let candidates = rows.filter((row) => {
     const sessionDate = rowSessionDate(row);
@@ -279,16 +326,12 @@ export async function cancelBooking(page: Page, options: CancelBookingOptions): 
   const member = await resolveMember(page, options.memberName);
   const memberLabel = member?.name ?? options.memberName ?? 'account holder';
 
-  await page.goto(MANAGE_BOOKINGS_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-  await ensureNoErrorPage(page, 'manage-bookings');
-
-  const rows = parseManageBookings(await page.content());
+  const rows = await collectManageBookingRows(page);
   if (rows.length === 0) {
     throw new Error('No cancellable bookings found on Manage Bookings page.');
   }
 
-  const row = findMatchingRow(rows, {
+  const row = findMatchingManageBookingRow(rows, {
     ...options,
     ...(member?.name ? { memberName: member.name } : {}),
   });

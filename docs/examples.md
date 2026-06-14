@@ -1,5 +1,7 @@
 # eacli examples
 
+For **AI agent setup** (OpenClaw, MCP, workflows), see **[agents.md](agents.md)** and **[AGENTS.md](../AGENTS.md)**.
+
 All examples assume you are in the repo root and have run `npm install`, `npx playwright install chromium`, and created `.env` from `.env.example`.
 
 Use **`npm run dev --`** during development, or after **`npm run build`**:
@@ -48,9 +50,9 @@ Example `bookings list --json` success payload (shape only):
         "time": "19:00",
         "activity": "Combat Thu 19:00",
         "location": "Centre",
-        "status": "Confirmed",
+        "status": "Waiting List",
         "reference": "1234567890",
-        "member": "Alex Smith"
+        "members": ["Alex Smith", "Sam Smith"]
       }
     ]
   }

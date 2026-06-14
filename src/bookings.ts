@@ -83,7 +83,7 @@ export function manageRowToBooking(row: ManageBookingRow): Booking {
     time: timePart,
     activity: row.activity,
     location: row.site || 'Centre',
-    status: 'Confirmed',
+    status: row.status || 'Confirmed',
     members: row.member.trim() ? [row.member.trim()] : [],
   };
   if (reference) booking.reference = reference;
@@ -106,6 +106,9 @@ export function groupBookingsBySession(rows: ManageBookingRow[]): Booking[] {
       }
       if (!existing.reference && partial.reference) {
         existing.reference = partial.reference;
+      }
+      if (partial.status && existing.status !== partial.status) {
+        existing.status = partial.status;
       }
     } else {
       bySession.set(key, { ...partial });

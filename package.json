@@ -1,7 +1,7 @@
 {
   "name": "eacli",
   "version": "1.4.0",
-  "description": "CLI and MCP server for Everyone Active gym bookings (Playwright)",
+  "description": "CLI and MCP server for Everyone Active gym bookings (Playwright). Agent docs: AGENTS.md, docs/agents.md",
   "main": "dist/index.js",
   "engines": {
     "node": ">=18"
