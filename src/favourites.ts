@@ -4,7 +4,8 @@ import { printTable } from 'console-table-printer';
 import chalk from 'chalk';
 import fs from 'fs';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
-import { findMemberByName, parseLinkedMembers, switchMember, type LinkedMember } from './members.js';
+import { collectManageBookingRows } from './cancelBooking.js';
+import { findMemberByName, getMembers, switchMember, type LinkedMember } from './members.js';
 
 export interface Favourite {
   name: string;
@@ -48,6 +49,19 @@ export function parseFavourites(html: string): Favourite[] {
   return favourites;
 }
 
+/** Infer QuickBook-style shortcuts from recurring activities in Manage Bookings. */
+export function favouritesFromBookingRows(rows: import('./cancelBooking.js').ManageBookingRow[]): Favourite[] {
+  const seen = new Set<string>();
+  const favourites: Favourite[] = [];
+  for (const row of rows) {
+    const name = row.activity.replace(/\s+/g, ' ').trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    favourites.push({ name });
+  }
+  return favourites;
+}
+
 export async function collectFavouritesForMember(page: Page, member?: LinkedMember): Promise<Favourite[]> {
   await page.locator('#collapseQuickBook').waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
   return parseFavourites(await page.content()).map((f) => {
@@ -64,27 +78,32 @@ export async function getFavourites(page: Page): Promise<Favourite[]> {
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'member-home');
 
-  const members = parseLinkedMembers(await page.content());
-  let allFavourites: Favourite[] = [];
+  let allFavourites: Favourite[] = await collectFavouritesForMember(page);
 
-  if (members.length <= 1) {
-    allFavourites = await collectFavouritesForMember(page);
-  } else {
+  if (allFavourites.length === 0) {
     if (process.env.DEBUG) {
-      console.log(chalk.gray(`[debug] Members: ${members.map((m) => m.name).join(', ')}`));
+      console.log(chalk.gray('[debug] QuickBook empty — inferring favourites from Manage Bookings'));
     }
-    const selectedFirst = members.find((m) => m.selected) ?? members[0]!;
-    const rest = members.filter((m) => m.id !== selectedFirst.id);
-
-    allFavourites.push(...(await collectFavouritesForMember(page, selectedFirst)));
-
-    for (const member of rest) {
-      await switchMember(page, member);
-      const memberFavs = await collectFavouritesForMember(page, member);
+    const rows = await collectManageBookingRows(page);
+    allFavourites = favouritesFromBookingRows(rows);
+  } else {
+    const members = await getMembers(page);
+    if (members.length > 1 && !members.some((m) => m.derivedFromBookings)) {
       if (process.env.DEBUG) {
-        console.log(chalk.gray(`[debug] ${member.name}: ${memberFavs.length} favourite(s)`));
+        console.log(chalk.gray(`[debug] Members: ${members.map((m) => m.name).join(', ')}`));
       }
-      allFavourites.push(...memberFavs);
+      const selectedFirst = members.find((m) => m.selected) ?? members[0]!;
+      const rest = members.filter((m) => m.id !== selectedFirst.id);
+      allFavourites = await collectFavouritesForMember(page, selectedFirst);
+
+      for (const member of rest) {
+        await switchMember(page, member);
+        const memberFavs = await collectFavouritesForMember(page, member);
+        if (process.env.DEBUG) {
+          console.log(chalk.gray(`[debug] ${member.name}: ${memberFavs.length} favourite(s)`));
+        }
+        allFavourites.push(...memberFavs);
+      }
     }
   }
 
@@ -193,12 +212,15 @@ export function parseSessionDateLabel(label: string): Date | null {
   const month = MONTH_NAMES.indexOf(m[3]!.toLowerCase().slice(0, 3));
   if (month < 0) return null;
   const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   let year = now.getFullYear();
   const day = Number(m[2]);
-  const sessionDate = new Date(year, month, day);
-  if (sessionDate < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)) {
+  let sessionDate = new Date(year, month, day);
+  // Recent past dates (manage bookings) stay in the current year; older dates roll to next occurrence.
+  const daysBehind = (todayStart.getTime() - sessionDate.getTime()) / 86_400_000;
+  if (daysBehind > 30) {
     year += 1;
-    return new Date(year, month, day);
+    sessionDate = new Date(year, month, day);
   }
   return sessionDate;
 }

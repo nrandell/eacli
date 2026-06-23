@@ -153,7 +153,7 @@ test('findMatchingManageBookingRow locates confirmed HIIT when waitlist table is
   const rows = parseManageBookings(loadFixture('manage-bookings-waitlist-and-confirmed.html'));
   const row = findMatchingManageBookingRow(rows, {
     activity: 'hiit',
-    date: 'saturday',
+    date: '2026-06-13',
     memberName: 'Nick Randell',
   });
 

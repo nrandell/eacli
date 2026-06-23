@@ -10,6 +10,7 @@ export type EacliErrorCode =
   | 'NOT_LOGGED_IN'
   | 'SITE_ERROR'
   | 'NO_SLOTS'
+  | 'ALREADY_BOOKED'
   | 'TIMEOUT'
   | 'VALIDATION_ERROR'
   | 'UNKNOWN';
@@ -96,6 +97,9 @@ export function mapErrorFromThrowable(err: unknown): EacliError {
   }
   if (/error page/i.test(message) || /an error has occurred/i.test(lower)) {
     return { message, code: 'SITE_ERROR' };
+  }
+  if (/already booked into/i.test(message) || /is already booked/i.test(lower)) {
+    return { message, code: 'ALREADY_BOOKED' };
   }
   if (/no bookable|no available book|no book or waitlist/i.test(lower)) {
     return { message, code: 'NO_SLOTS' };

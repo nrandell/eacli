@@ -3,7 +3,7 @@ import type { Browser, BrowserContext, Page } from 'playwright';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
-import { MEMBER_HOME_URL } from './connect.js';
+import { MEMBER_HOME_URL, ensurePreferredSite } from './connect.js';
 
 dotenv.config({ quiet: true });
 
@@ -90,7 +90,7 @@ export async function getAuthenticatedContext(options: AuthOptions = {}): Promis
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   }
 
-  await handleCentreSelection(page);
+  await ensurePreferredSite(page);
   await ensureNoErrorPage(page, 'post-login dashboard');
 
   return { browser, context, page };
@@ -195,43 +195,6 @@ async function isLoggedIn(page: Page): Promise<boolean> {
   ]);
   if (portalMarkers.some(Boolean)) return true;
   return onMemberHome && !(await isLoginFormVisible(page));
-}
-
-async function handleCentreSelection(page: Page): Promise<void> {
-  try {
-    const centreSelect = page.locator('select[name*="Centre" i], select[id*="Centre" i], select[name*="Site" i]').first();
-    const isVisible = await centreSelect.isVisible().catch(() => false);
-    if (!isVisible) return;
-
-    const options = await centreSelect.locator('option[value]:not([value=""])').all();
-    if (options.length === 0) return;
-
-    const firstOption = options[0];
-    if (!firstOption) return;
-    const centreValue = (await firstOption.getAttribute('value')) || (await firstOption.textContent())?.trim() || '';
-    if (!centreValue) return;
-
-    if (process.env.DEBUG) console.log(chalk.gray(`[debug] Centre selector found, selecting: ${centreValue}`));
-
-    await centreSelect.selectOption(centreValue).catch(() => {});
-
-    const submitBtn = page
-      .locator(
-        'input[type="submit"][value*="Select" i], input[type="submit"][value*="Go" i], button:has-text("Select"), button:has-text("Go")'
-      )
-      .first();
-    if (await submitBtn.isVisible().catch(() => false)) {
-      await Promise.all([
-        page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {}),
-        submitBtn.click().catch(() => {}),
-      ]);
-    } else {
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-      await page.waitForTimeout(800);
-    }
-  } catch (e) {
-    if (process.env.DEBUG) console.log(chalk.gray('[debug] Centre selection attempt failed (non-fatal):'), e);
-  }
 }
 
 async function ensureNoErrorPage(page: Page, context: string): Promise<void> {

@@ -2,7 +2,13 @@ import type { Page } from 'playwright';
 import chalk from 'chalk';
 import fs from 'fs';
 import { ensureNoErrorPage } from './connect.js';
-import { openClassStatus, waitForClassStatusContent } from './classStatus.js';
+import {
+  getClassStatusPageMessage,
+  isAlreadyBookedPageMessage,
+  openClassStatus,
+  waitForClassStatusContent,
+} from './classStatus.js';
+import { EacliCommandError } from './output.js';
 import {
   formatEaDateLabel,
   parseSessionDateLabel,
@@ -83,6 +89,14 @@ export async function bookClass(page: Page, options: BookClassOptions): Promise<
     if (opened.pageMessage) console.log(chalk.gray(`[debug] Page message: ${opened.pageMessage}`));
   }
 
+  const memberLabel = member?.name ?? options.memberName;
+  if (isAlreadyBookedPageMessage(opened.pageMessage)) {
+    throw new EacliCommandError(
+      `${memberLabel} is already booked into ${opened.activityLabel} on ${dateLabel}.`,
+      'ALREADY_BOOKED'
+    );
+  }
+
   await ensureNoErrorPage(page, 'class-status');
   await waitForClassStatusContent(page);
 
@@ -107,6 +121,13 @@ export async function bookClass(page: Page, options: BookClassOptions): Promise<
   }
 
   if (!matchedRow) {
+    const bodyMessage = getClassStatusPageMessage(await page.content());
+    if (isAlreadyBookedPageMessage(bodyMessage ?? opened.pageMessage)) {
+      throw new EacliCommandError(
+        `${memberLabel} is already booked into ${opened.activityLabel} on ${dateLabel}.`,
+        'ALREADY_BOOKED'
+      );
+    }
     const available: string[] = [];
     for (let i = 0; i < count; i++) {
       const h = (await rows.nth(i).locator('h4').first().textContent())?.trim();

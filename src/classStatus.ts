@@ -1,17 +1,22 @@
 import type { Page } from 'playwright';
 import * as cheerio from 'cheerio';
 import chalk from 'chalk';
-import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
+import { SELECT_SITE_URL, ensureNoErrorPage, ensurePreferredSite } from './connect.js';
+import { collectManageBookingRows } from './cancelBooking.js';
 import {
   collectFavouritesForMember,
+  favouritesFromBookingRows,
   findFavourite,
   resolveTargetDate,
   type Favourite,
 } from './favourites.js';
 import { resolveMember, type LinkedMember } from './members.js';
 
-const SELECT_SITE_URL = 'https://book.everyoneactive.com/Connect/mrmselectsite.aspx?disableSiteSelection=1';
-const GROUP_EXERCISE_SELECTOR = '#ctl00_MainContent_activityGroupsGrid_ctrl8_lnkListCommand, [data-qa-id="button-ActivityID=166GRPEX"]';
+/** In-centre group classes (HIIT, Combat, etc.) — not "Group Exercise - Virtual". */
+const GROUP_EXERCISE_IN_PERSON_SELECTOR =
+  '[data-qa-id="button-ActivityID=166GRPEX"], input.BookingLinkButton[value*="Group Exercise 16+"]';
+
+const DAY_TOKENS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 
 export type SessionStatus = 'available' | 'waitlist' | 'full' | 'unknown';
 
@@ -91,11 +96,28 @@ export function getClassStatusPageMessage(html: string): string | undefined {
   return alert || undefined;
 }
 
+/** Portal class-status message indicating the member already holds this booking. */
+export function isAlreadyBookedPageMessage(msg: string | undefined): boolean {
+  if (!msg) return false;
+  return /already booked/i.test(msg);
+}
+
 /** Detects page messages from QuickBook/fav path that often hide real slots for secondary members (e.g. Hayley). */
 function isMemberContextOrBookedEmptyMessage(msg: string | undefined): boolean {
   if (!msg) return false;
   const m = msg.toLowerCase();
-  return /already booked/i.test(msg) || /booking on behalf of|you're booking on behalf/i.test(msg);
+  return isAlreadyBookedPageMessage(msg) || /booking on behalf of|you're booking on behalf/i.test(m);
+}
+
+/** Activity group names from mrmselectActivityGroup.aspx (e.g. Group Exercise 16+ Yrs vs Virtual). */
+export function parseActivityGroupNames(html: string): string[] {
+  const $ = cheerio.load(html);
+  const names: string[] = [];
+  $('[id*="activityGroupsGrid"] input[type="submit"]').each((_, el) => {
+    const value = $(el).attr('value')?.replace(/\s+/g, ' ').trim();
+    if (value) names.push(value);
+  });
+  return names;
 }
 
 /** Wait for class status rows or a warning message after navigation. */
@@ -120,7 +142,58 @@ async function openViaFavourite(page: Page, favourite: Favourite): Promise<void>
 }
 
 function normalizeActivity(s: string): string {
-  return s.toLowerCase().replace(/\s+/g, '');
+  return s.toLowerCase().replace(/^vir\s+/i, '').replace(/\s+/g, '');
+}
+
+/** Compact form for matching spaced labels like "H I I T". */
+function compactActivity(s: string): string {
+  return normalizeActivity(s).replace(/\s/g, '');
+}
+
+function activityMatchesDay(activityName: string, targetDate: Date): boolean {
+  const dayToken = DAY_TOKENS[targetDate.getDay()]!;
+  const name = activityName.toLowerCase();
+  return name.includes(dayToken) || name.includes(dayToken.slice(0, 3));
+}
+
+/** Score how well an activity label matches a query (higher = better). */
+export function scoreActivityMatch(activityName: string, query: string, targetDate?: Date): number {
+  const q = compactActivity(query);
+  const n = compactActivity(activityName);
+  if (!q || !n) return 0;
+  if (n === q) return 100;
+  if (activityName === query) return 95;
+
+  if (targetDate && !activityMatchesDay(activityName, targetDate)) return 0;
+
+  let score = 0;
+  if (n.includes(q)) score = 80 - Math.min(30, n.length - q.length);
+  else if (q.includes(n)) score = 60;
+  else return 0;
+
+  if (targetDate) score += 15;
+
+  // Prefer in-centre names over virtual when query has no "vir"
+  if (!/^vir\b/i.test(query) && /^vir\b/i.test(activityName)) score -= 25;
+
+  return score;
+}
+
+export function bestActivityMatch(
+  activityNames: string[],
+  query: string,
+  targetDate?: Date
+): string | undefined {
+  let best: string | undefined;
+  let bestScore = 0;
+  for (const name of activityNames) {
+    const score = scoreActivityMatch(name, query, targetDate);
+    if (score > bestScore) {
+      bestScore = score;
+      best = name;
+    }
+  }
+  return bestScore > 0 ? best : undefined;
 }
 
 /** Activity names from mrmSelectActivity.aspx (Group Exercise list). */
@@ -139,16 +212,21 @@ export function parseGroupExerciseActivities(html: string): string[] {
   return names;
 }
 
-/** Make a Booking → Group Exercise → activity picker. */
+/** Make a Booking → preferred site → Group Exercise 16+ Yrs → activity picker. */
 export async function navigateToGroupExerciseList(page: Page): Promise<void> {
-  await page.goto(SELECT_SITE_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  if (!/mrmselectActivityGroup\.aspx/i.test(page.url()) && !/mrmSelectActivity\.aspx/i.test(page.url())) {
+    await page.goto(SELECT_SITE_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await ensurePreferredSite(page);
+  }
 
-  const groupBtn = page.locator(GROUP_EXERCISE_SELECTOR).first();
-  await groupBtn.waitFor({ state: 'visible', timeout: 15000 });
-  await groupBtn.click();
-  await page.waitForURL(/mrmSelectActivity\.aspx/i, { timeout: 30000 });
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  if (/mrmselectActivityGroup\.aspx/i.test(page.url())) {
+    const groupBtn = page.locator(GROUP_EXERCISE_IN_PERSON_SELECTOR).first();
+    await groupBtn.waitFor({ state: 'visible', timeout: 15000 });
+    await groupBtn.click();
+    await page.waitForURL(/mrmSelectActivity\.aspx/i, { timeout: 30000 });
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  }
 }
 
 /** All bookable Group Exercise classes from Make a Booking (not QuickBook favourites). */
@@ -160,46 +238,53 @@ export async function listGroupExerciseActivities(page: Page): Promise<string[]>
 async function clickActivityOnList(
   page: Page,
   activityQuery: string,
-  mode: 'exact' | 'partial'
+  mode: 'exact' | 'partial',
+  targetDate?: Date
 ): Promise<string> {
   if (!/mrmSelectActivity\.aspx/i.test(page.url())) {
     await navigateToGroupExerciseList(page);
   }
 
-  const q = normalizeActivity(activityQuery);
   const buttons = page.locator('input.BookingLinkButton[type="submit"], input.btn-primary[type="submit"]');
   const count = await buttons.count();
+  const names: string[] = [];
 
   for (let i = 0; i < count; i++) {
-    const btn = buttons.nth(i);
-    const value = (await btn.getAttribute('value')) ?? '';
-    const nv = normalizeActivity(value);
-    const matches =
-      mode === 'exact'
-        ? value === activityQuery || nv === q
-        : nv.includes(q) || q.includes(nv);
-    if (matches) {
-      await btn.click();
+    const v = (await buttons.nth(i).getAttribute('value')) ?? '';
+    if (v.trim()) names.push(v);
+  }
+
+  if (mode === 'exact') {
+    const exact = names.find((n) => n === activityQuery || normalizeActivity(n) === normalizeActivity(activityQuery));
+    if (exact) {
+      await buttons.filter({ hasText: exact }).first().click();
       await page.waitForURL(/mrmClassStatus\.aspx/i, { timeout: 30000 });
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       await waitForClassStatusContent(page);
-      return value;
+      return exact;
     }
   }
 
-  const names: string[] = [];
-  for (let i = 0; i < Math.min(count, 20); i++) {
-    const v = await buttons.nth(i).getAttribute('value');
-    if (v) names.push(v);
+  const match = bestActivityMatch(names, activityQuery, targetDate);
+  if (match) {
+    if (process.env.DEBUG) {
+      console.log(chalk.gray(`[debug] Matched activity "${activityQuery}" → "${match}"`));
+    }
+    await buttons.filter({ hasText: match }).first().click();
+    await page.waitForURL(/mrmClassStatus\.aspx/i, { timeout: 30000 });
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await waitForClassStatusContent(page);
+    return match;
   }
+
   throw new Error(
-    `Activity "${activityQuery}" not found under Group Exercise. Examples: ${names.slice(0, 8).join(', ')}${names.length > 8 ? '…' : ''}`
+    `Activity "${activityQuery}" not found under Group Exercise 16+ Yrs. Examples: ${names.slice(0, 8).join(', ')}${names.length > 8 ? '…' : ''}`
   );
 }
 
-async function openViaBrowse(page: Page, activityQuery: string): Promise<string> {
+async function openViaBrowse(page: Page, activityQuery: string, targetDate?: Date): Promise<string> {
   await navigateToGroupExerciseList(page);
-  return clickActivityOnList(page, activityQuery, 'partial');
+  return clickActivityOnList(page, activityQuery, 'partial', targetDate);
 }
 
 /** Open one Group Exercise activity via browse and return parsed sessions. */
@@ -252,7 +337,10 @@ export interface OpenClassStatusResult {
 /** Navigate to the class status (slot picker) page for an activity. */
 export async function openClassStatus(page: Page, options: OpenClassStatusOptions): Promise<OpenClassStatusResult> {
   const member = await resolveMember(page, options.memberName);
-  const favourites = await collectFavouritesForMember(page, member ?? undefined);
+  let favourites = await collectFavouritesForMember(page, member ?? undefined);
+  if (favourites.length === 0) {
+    favourites = favouritesFromBookingRows(await collectManageBookingRows(page));
+  }
   let activityLabel = options.activity;
   let source: 'favourite' | 'browse' = 'browse';
 
@@ -269,11 +357,11 @@ export async function openClassStatus(page: Page, options: OpenClassStatusOption
       await openViaFavourite(page, favourite);
     } catch {
       if (process.env.DEBUG) console.log(chalk.gray('[debug] Favourite not found, using Make a Booking browse'));
-      activityLabel = await openViaBrowse(page, options.activity);
+      activityLabel = await openViaBrowse(page, options.activity, targetDate);
       source = 'browse';
     }
   } else {
-    activityLabel = await openViaBrowse(page, options.activity);
+    activityLabel = await openViaBrowse(page, options.activity, targetDate);
     source = 'browse';
   }
 
@@ -288,7 +376,7 @@ export async function openClassStatus(page: Page, options: OpenClassStatusOption
     if (process.env.DEBUG) {
       console.log(chalk.gray('[debug] QuickBook/favourite showed no slots (may be member context "on behalf of" or already booked); trying browse path'));
     }
-    activityLabel = await openViaBrowse(page, options.activity);
+    activityLabel = await openViaBrowse(page, options.activity, targetDate);
     source = 'browse';
     await ensureNoErrorPage(page, 'class-status');
     const msg = getClassStatusPageMessage(await page.content());

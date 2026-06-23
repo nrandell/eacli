@@ -4,12 +4,14 @@ export const memberParam = z
   .string()
   .optional()
   .describe(
-    'Linked member name (partial match). Omit only when the account has exactly one linked member. If multiple members exist, you must ask the user which person to use.'
+    'Linked member name — partial match works (e.g. "nick" → Nick Randell). Omit only when the account has exactly one linked member. If multiple members exist, pass an explicit name or ask the user.'
   );
 
 export const activityParam = z
   .string()
-  .describe('Activity name (partial match), e.g. hiit, combat, bodycombat');
+  .describe(
+    'Activity name (partial match), e.g. hiit, combat, bodycombat. In-centre classes use Group Exercise 16+ Yrs: "combat" on Sunday maps to BodyCombat Sun, on Thursday to Combat Thu. Virtual classes are prefixed "Vir".'
+  );
 
 export const dateParam = z
   .string()
@@ -84,12 +86,12 @@ export const TOOL_METAS: ToolMeta[] = [
   },
   {
     name: 'check_availability',
-    description: `Check bookable or waitlist slots for a Group Exercise class. Always pass activity and date (do not scan all activities). ${DATE_HINT} Call before book_class and show the user available times.`,
+    description: `Check bookable or waitlist slots for in-centre Group Exercise 16+ Yrs classes. Always pass activity and date (do not scan all activities). ${DATE_HINT} Response groups include alreadyBooked (true when the member holds this class) and bookable (true when slots exist). If alreadyBooked is true, do not call book_class — tell the user they are already booked.`,
     inputSchema: toolInputSchemas.check_availability,
   },
   {
     name: 'book_class',
-    description: `Book a Group Exercise class. ${DATE_HINT} Requires user confirmation after check_availability. Books the first matching session on that day.`,
+    description: `Book an in-centre Group Exercise class. ${DATE_HINT} Requires user confirmation after check_availability (skip if alreadyBooked was true). Pass member explicitly when multiple household members exist — first names work. Returns ALREADY_BOOKED if the portal shows the member is already on that class.`,
     inputSchema: toolInputSchemas.book_class,
   },
   {

@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import fs from 'fs';
 import {
   fetchSessionsViaBrowse,
+  isAlreadyBookedPageMessage,
   listGroupExerciseActivities,
   openClassStatus,
   parseClassStatusSessions,
@@ -32,6 +33,10 @@ export interface AvailabilityGroup {
   source: 'favourite' | 'browse';
   pageMessage?: string;
   sessions: ClassSession[];
+  /** True when the portal reports this member is already booked on this activity. */
+  alreadyBooked?: boolean;
+  /** True when sessions include an available or waitlist slot. */
+  bookable?: boolean;
 }
 
 export interface ListAvailabilityResult {
@@ -71,6 +76,16 @@ function matchesActivityQuery(name: string, query: string): boolean {
   return n.includes(q) || q.includes(n);
 }
 
+function finalizeAvailabilityGroup(group: AvailabilityGroup): AvailabilityGroup {
+  const alreadyBooked = group.alreadyBooked ?? isAlreadyBookedPageMessage(group.pageMessage);
+  const bookable = group.sessions.some((s) => s.status === 'available' || s.status === 'waitlist');
+  return {
+    ...group,
+    ...(alreadyBooked ? { alreadyBooked: true } : {}),
+    bookable,
+  };
+}
+
 async function listOneActivity(
   page: Page,
   member: LinkedMember | null,
@@ -84,13 +99,13 @@ async function listOneActivity(
   });
   const html = await page.content();
   const sessions = filterByDate(parseClassStatusSessions(html), date);
-  return {
+  return finalizeAvailabilityGroup({
     activityLabel: opened.activityLabel,
     ...(member ? { member: member.name } : {}),
     source: opened.source,
     sessions,
     ...(opened.pageMessage ? { pageMessage: opened.pageMessage } : {}),
-  };
+  });
 }
 
 /** Scan every Group Exercise activity from Make a Booking. */
@@ -127,13 +142,15 @@ async function listAllBrowseActivities(
     try {
       const { activityLabel, sessions: rawSessions, pageMessage } = await fetchSessionsViaBrowse(page, name);
       const sessions = filterByDate(rawSessions, date);
-      groups.push({
-        activityLabel,
-        ...(member ? { member: member.name } : {}),
-        source: 'browse',
-        sessions,
-        ...(pageMessage ? { pageMessage } : {}),
-      });
+      groups.push(
+        finalizeAvailabilityGroup({
+          activityLabel,
+          ...(member ? { member: member.name } : {}),
+          source: 'browse',
+          sessions,
+          ...(pageMessage ? { pageMessage } : {}),
+        })
+      );
     } catch (err) {
       if (process.env.DEBUG) {
         console.log(chalk.gray(`[debug] Skipped ${name}:`, err instanceof Error ? err.message : err));
@@ -208,7 +225,9 @@ export function printAvailability(result: ListAvailabilityResult): void {
       const who = g.member ? `${g.member} · ` : '';
       const msg = g.pageMessage ?? 'No sessions';
       console.log(chalk.gray(`  ${who}${g.activityLabel}: ${msg}`));
-      if (g.pageMessage && /on behalf of/i.test(g.pageMessage)) {
+      if (g.alreadyBooked) {
+        console.log(chalk.gray('    (Member is already booked — do not call book_class for this slot.)'));
+      } else if (g.pageMessage && /on behalf of/i.test(g.pageMessage)) {
         console.log(chalk.gray('    (Known portal quirk for secondary members; explicit --member + precise date or browse path usually resolves.)'));
       }
     }

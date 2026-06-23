@@ -17,6 +17,8 @@ export interface ManageBookingRow {
   member: string;
   cancelQaId: string;
   status: string;
+  /** False when the portal renders a disabled cancel icon (cutoff / fixed reservation). */
+  cancellable?: boolean;
 }
 
 export interface CancelBookingOptions {
@@ -67,6 +69,15 @@ function statusFromCancelQa(qa: string): string | undefined {
   if (/waitinglist/i.test(raw)) return 'Waiting List';
   if (/confirmed/i.test(raw)) return 'Confirmed';
   return raw;
+}
+
+function isCancelLinkCancellable($a: cheerio.Cheerio<any>): boolean {
+  const cls = $a.attr('class') ?? '';
+  const href = ($a.attr('href') ?? '').trim();
+  const title = ($a.attr('title') ?? '').toLowerCase();
+  if (cls.includes('aspNetDisabled')) return false;
+  if (/cannot be cancell/i.test(title)) return false;
+  return href.length > 0;
 }
 
 function inferSectionStatus($table: cheerio.Cheerio<any>, cancelQa: string): string {
@@ -144,6 +155,7 @@ function parseManageBookingsTable(
       member,
       cancelQaId: qa,
       status,
+      cancellable: isCancelLinkCancellable(cancelA),
     });
   });
 }
@@ -355,9 +367,24 @@ export async function cancelBooking(page: Page, options: CancelBookingOptions): 
     return `${dd}/${mm}/${d.getFullYear()}`;
   })();
 
+  if (row.cancellable === false) {
+    throw new Error(
+      `Booking for "${row.activity}" on ${row.date} (${row.member}) cannot be cancelled via the portal (cutoff period or fixed reservation).`
+    );
+  }
+
   const cancelLink = page
-    .locator(`a[data-qa-id*="lnkbutton-Cancel-ID${cancelId}"][data-qa-id*="Date&Time=${targetDmY}"]`)
+    .locator(
+      `a[data-qa-id*="lnkbutton-Cancel-ID${cancelId}"][data-qa-id*="Date&Time=${targetDmY}"]:not(.aspNetDisabled)`
+    )
     .first();
+
+  const href = await cancelLink.getAttribute('href').catch(() => null);
+  if (!href) {
+    throw new Error(
+      `Cancel action for "${row.activity}" on ${row.date} (${row.member}) is not available (link disabled or missing).`
+    );
+  }
 
   await cancelLink.click();
   await page.waitForURL(/mrmConfirmMove\.aspx/i, { timeout: 30000 });

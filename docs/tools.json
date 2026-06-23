@@ -47,13 +47,13 @@
       "type": "function",
       "function": {
         "name": "check_availability",
-        "description": "Check bookable or waitlist slots for a Group Exercise class. Always pass activity and date (do not scan all activities). Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Call before book_class and show the user available times.",
+        "description": "Check bookable or waitlist slots for in-centre Group Exercise 16+ Yrs classes. Always pass activity and date (do not scan all activities). Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Response groups include alreadyBooked (true when the member holds this class) and bookable (true when slots exist). If alreadyBooked is true, do not call book_class — tell the user they are already booked.",
         "parameters": {
           "type": "object",
           "properties": {
             "activity": {
               "type": "string",
-              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat"
+              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat. In-centre classes use Group Exercise 16+ Yrs: \"combat\" on Sunday maps to BodyCombat Sun, on Thursday to Combat Thu. Virtual classes are prefixed \"Vir\"."
             },
             "date": {
               "type": "string",
@@ -74,13 +74,13 @@
       "type": "function",
       "function": {
         "name": "book_class",
-        "description": "Book a Group Exercise class. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Requires user confirmation after check_availability. Books the first matching session on that day.",
+        "description": "Book an in-centre Group Exercise class. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Requires user confirmation after check_availability (skip if alreadyBooked was true). Pass member explicitly when multiple household members exist — first names work. Returns ALREADY_BOOKED if the portal shows the member is already on that class.",
         "parameters": {
           "type": "object",
           "properties": {
             "activity": {
               "type": "string",
-              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat"
+              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat. In-centre classes use Group Exercise 16+ Yrs: \"combat\" on Sunday maps to BodyCombat Sun, on Thursday to Combat Thu. Virtual classes are prefixed \"Vir\"."
             },
             "date": {
               "type": "string",
@@ -107,7 +107,7 @@
           "properties": {
             "activity": {
               "type": "string",
-              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat"
+              "description": "Activity name (partial match), e.g. hiit, combat, bodycombat. In-centre classes use Group Exercise 16+ Yrs: \"combat\" on Sunday maps to BodyCombat Sun, on Thursday to Combat Thu. Virtual classes are prefixed \"Vir\"."
             },
             "date": {
               "type": "string",

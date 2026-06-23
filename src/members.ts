@@ -4,6 +4,7 @@ import { printTable } from 'console-table-printer';
 import chalk from 'chalk';
 import fs from 'fs';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
+import type { ManageBookingRow } from './cancelBooking.js';
 import { EacliCommandError } from './output.js';
 
 export interface LinkedMember {
@@ -11,6 +12,8 @@ export interface LinkedMember {
   id: string;
   selected: boolean;
   sliderSelector: string;
+  /** Present when member list was inferred from Manage Bookings (no home-page switcher). */
+  derivedFromBookings?: boolean;
 }
 
 const MEMBER_SWITCH_POLL_MS = 200;
@@ -37,6 +40,20 @@ export function parseLinkedMembers(html: string): LinkedMember[] {
   });
 
   return members;
+}
+
+/** Build a household member list from Manage Bookings rows when the home-page switcher is gone. */
+export function membersFromBookingRows(rows: ManageBookingRow[]): LinkedMember[] {
+  const names = [...new Set(rows.map((r) => r.member.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+  return names.map((name, index) => ({
+    name,
+    id: `booking-${index + 1}`,
+    selected: index === 0,
+    sliderSelector: '',
+    derivedFromBookings: true,
+  }));
 }
 
 /** Whether a linked member is currently selected in saved HTML. */
@@ -79,24 +96,31 @@ export function findMemberByName(members: LinkedMember[], nameQuery: string): Li
 
 /** Resolve member: explicit name, or the currently selected linked member, or null if single-account. */
 export async function resolveMember(page: Page, memberName?: string): Promise<LinkedMember | null> {
-  if (!page.url().includes('memberHomePage.aspx')) {
-    await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  }
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-  await ensureNoErrorPage(page, 'member-home');
-
-  const members = parseLinkedMembers(await page.content());
+  const members = await getMembers(page);
   if (members.length === 0) return null;
 
   const member = memberName?.trim()
     ? findMemberByName(members, memberName)
     : (members.find((m) => m.selected) ?? members[0])!;
 
-  if (!member.selected) await switchMember(page, member);
+  if (!member.selected && !member.derivedFromBookings) {
+    await switchMember(page, member);
+  }
   return member;
 }
 
 export async function switchMember(page: Page, member: LinkedMember): Promise<void> {
+  if (member.derivedFromBookings || !member.sliderSelector) {
+    if (process.env.DEBUG) {
+      console.log(
+        chalk.gray(
+          `[debug] Member "${member.name}" has no portal switcher (derived from bookings); skipping UI switch`
+        )
+      );
+    }
+    return;
+  }
+
   if (!page.url().includes('memberHomePage.aspx')) {
     await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
@@ -121,19 +145,26 @@ export async function switchMember(page: Page, member: LinkedMember): Promise<vo
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 }
 
-/** Fetch linked members from the Connect member home page. */
+/** Fetch linked members from member home, falling back to Manage Bookings attribution. */
 export async function getMembers(page: Page): Promise<LinkedMember[]> {
-  if (!page.url().includes('memberHomePage.aspx')) {
+  if (!page.url().includes('memberHomePage.aspx') && !page.url().includes('mrmSelectSite.aspx')) {
     await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
   }
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'member-home');
 
-  // Member list may render after initial paint / AJAX
-  await page.locator('#linkedMembers li').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+  await page.locator('#linkedMembers li').first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
-  const html = await page.content();
-  const members = parseLinkedMembers(html);
+  let members = parseLinkedMembers(await page.content());
+
+  if (members.length === 0) {
+    if (process.env.DEBUG) {
+      console.log(chalk.gray('[debug] #linkedMembers empty — deriving members from Manage Bookings'));
+    }
+    const { collectManageBookingRows } = await import('./cancelBooking.js');
+    const rows = await collectManageBookingRows(page);
+    members = membersFromBookingRows(rows);
+  }
 
   if (process.env.DEBUG) {
     console.log(chalk.gray(`[debug] Page URL: ${page.url()}`));
@@ -141,13 +172,9 @@ export async function getMembers(page: Page): Promise<LinkedMember[]> {
   }
 
   if (members.length === 0) {
-    const hasPanel = (await page.locator('#linkedMembers').count()) > 0;
-    if (!hasPanel && process.env.DEBUG) {
-      console.log(chalk.yellow('[debug] #linkedMembers not found on page'));
-    }
     try {
       fs.mkdirSync('.eacli-session', { recursive: true });
-      fs.writeFileSync('.eacli-session/last-members-page.html', html);
+      fs.writeFileSync('.eacli-session/last-members-page.html', await page.content());
       if (process.env.DEBUG) {
         console.log(chalk.gray('[debug] Saved HTML to .eacli-session/last-members-page.html'));
       }
@@ -163,7 +190,12 @@ export function printMembers(members: LinkedMember[]): void {
     return;
   }
 
-  console.log(chalk.green(`\n${members.length} linked member(s):\n`));
+  const derived = members.some((m) => m.derivedFromBookings);
+  if (derived) {
+    console.log(chalk.gray('(Members inferred from Manage Bookings — portal home switcher unavailable.)\n'));
+  }
+
+  console.log(chalk.green(`${members.length} linked member(s):\n`));
 
   printTable(
     members.map((m, idx) => ({
