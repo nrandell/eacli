@@ -6,6 +6,12 @@ import fs from 'fs';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
 import type { ManageBookingRow } from './cancelBooking.js';
 import { EacliCommandError } from './output.js';
+import {
+  hasMultipleProfiles,
+  memberMatchesProfile,
+  type ProfileSummary,
+  type ResolvedProfile,
+} from './profiles.js';
 
 export interface LinkedMember {
   name: string;
@@ -94,8 +100,33 @@ export function findMemberByName(members: LinkedMember[], nameQuery: string): Li
   return match;
 }
 
-/** Resolve member: explicit name, or the currently selected linked member, or null if single-account. */
-export async function resolveMember(page: Page, memberName?: string): Promise<LinkedMember | null> {
+function memberFromProfile(profile: ResolvedProfile): LinkedMember {
+  return {
+    name: profile.name,
+    id: profile.key,
+    selected: true,
+    sliderSelector: '',
+  };
+}
+
+/** Resolve member: explicit name, active login profile, or portal linked member. */
+export async function resolveMember(
+  page: Page,
+  memberName?: string,
+  activeProfile?: ResolvedProfile
+): Promise<LinkedMember | null> {
+  if (activeProfile && hasMultipleProfiles()) {
+    if (memberName?.trim()) {
+      if (!memberMatchesProfile(memberName, activeProfile.key, activeProfile.name)) {
+        throw new EacliCommandError(
+          `Member "${memberName}" does not match active profile "${activeProfile.key}" (${activeProfile.name}). Use --profile to switch accounts.`,
+          'VALIDATION_ERROR'
+        );
+      }
+    }
+    return memberFromProfile(activeProfile);
+  }
+
   const members = await getMembers(page);
   if (members.length === 0) return null;
 
@@ -146,7 +177,10 @@ export async function switchMember(page: Page, member: LinkedMember): Promise<vo
 }
 
 /** Fetch linked members from member home, falling back to Manage Bookings attribution. */
-export async function getMembers(page: Page): Promise<LinkedMember[]> {
+export async function getMembers(page: Page, activeProfile?: ResolvedProfile): Promise<LinkedMember[]> {
+  if (activeProfile && hasMultipleProfiles()) {
+    return [memberFromProfile(activeProfile)];
+  }
   if (!page.url().includes('memberHomePage.aspx') && !page.url().includes('mrmSelectSite.aspx')) {
     await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
   }
@@ -182,6 +216,26 @@ export async function getMembers(page: Page): Promise<LinkedMember[]> {
   }
 
   return members;
+}
+
+export function printProfileSummaries(profiles: ProfileSummary[]): void {
+  if (profiles.length === 0) {
+    console.log(chalk.yellow('No profiles configured.'));
+    return;
+  }
+
+  console.log(chalk.gray('(Each profile is a separate Everyone Active login — pass --profile or --member to select.)\n'));
+  console.log(chalk.green(`${profiles.length} profile(s):\n`));
+
+  printTable(
+    profiles.map((p, idx) => ({
+      '#': idx + 1,
+      Key: p.key,
+      Name: p.name,
+      Default: p.default ? 'yes' : 'no',
+      Session: p.hasSession ? 'saved' : 'none',
+    }))
+  );
 }
 
 export function printMembers(members: LinkedMember[]): void {

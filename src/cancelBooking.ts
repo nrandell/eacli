@@ -5,6 +5,7 @@ import fs from 'fs';
 import { ensureNoErrorPage } from './connect.js';
 import { parseSessionDateLabel, resolveTargetDate, sameCalendarDay } from './favourites.js';
 import { resolveMember } from './members.js';
+import type { ResolvedProfile } from './profiles.js';
 
 export const MANAGE_BOOKINGS_URL =
   'https://book.everyoneactive.com/Connect/mrmViewMyBookings.aspx?showOption=1';
@@ -334,8 +335,12 @@ export function findMatchingManageBookingRow(
 }
 
 /** Cancel a booking via Manage Bookings. */
-export async function cancelBooking(page: Page, options: CancelBookingOptions): Promise<CancelBookingResult> {
-  const member = await resolveMember(page, options.memberName);
+export async function cancelBooking(
+  page: Page,
+  options: CancelBookingOptions,
+  activeProfile?: ResolvedProfile
+): Promise<CancelBookingResult> {
+  const member = await resolveMember(page, options.memberName, activeProfile);
   const memberLabel = member?.name ?? options.memberName ?? 'account holder';
 
   const rows = await collectManageBookingRows(page);

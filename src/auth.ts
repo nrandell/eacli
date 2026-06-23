@@ -1,14 +1,21 @@
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
-import dotenv from 'dotenv';
 import chalk from 'chalk';
 import { MEMBER_HOME_URL, ensurePreferredSite } from './connect.js';
-
-dotenv.config({ quiet: true });
+import { EacliCommandError } from './output.js';
+import {
+  hasMultipleProfiles,
+  portalNameMatchesProfile,
+  legacyAuthStatePath,
+  removeLegacyAuthStateIfPresent,
+  resolveAuthStatePath,
+  resolveProfile,
+  type ResolvedProfile,
+  type ResolveProfileOptions,
+} from './profiles.js';
 
 const SESSION_DIR = '.eacli-session';
-const AUTH_STATE_FILE = '.eacli-auth-state.json';
 const LOGIN_URL = 'https://book.everyoneactive.com/Connect/mrmLogin.aspx';
 const CONNECT_URL = 'https://book.everyoneactive.com/Connect/';
 
@@ -16,36 +23,74 @@ export interface AuthResult {
   browser: Browser;
   context: BrowserContext;
   page: Page;
+  profile: ResolvedProfile;
 }
 
-export interface AuthOptions {
+export interface AuthOptions extends ResolveProfileOptions {
   /** Clear saved session and log in again (used by `eacli login`). */
   forceLogin?: boolean;
 }
 
 /** Persist cookies/localStorage so the next run can skip login. */
-export async function saveAuthState(context: BrowserContext): Promise<void> {
-  await context.storageState({ path: AUTH_STATE_FILE });
-  if (process.env.DEBUG) console.log(chalk.gray(`[debug] Session saved to ${AUTH_STATE_FILE}`));
+export async function saveAuthState(context: BrowserContext, profile: ResolvedProfile): Promise<void> {
+  const authPath = resolveAuthStatePath(profile.key);
+  mkdirSync(SESSION_DIR, { recursive: true });
+  await context.storageState({ path: authPath });
+  if (authPath !== legacyAuthStatePath()) {
+    removeLegacyAuthStateIfPresent();
+  }
+  if (process.env.DEBUG) console.log(chalk.gray(`[debug] Session saved to ${authPath} (profile: ${profile.key})`));
 }
 
 /** Save session and close the browser. */
 export async function closeAuthenticated(auth: AuthResult): Promise<void> {
   try {
-    await saveAuthState(auth.context);
+    await saveAuthState(auth.context, auth.profile);
   } catch {}
   await auth.context.close();
   await auth.browser.close();
 }
 
+async function readPortalDisplayName(page: Page): Promise<string | undefined> {
+  const locator = page.locator('#ctl00_lblFullName, [data-qa-id="label-memberNameMasterPage"]').first();
+  const text = (await locator.textContent().catch(() => null))?.replace(/\s+/g, ' ').trim();
+  return text || undefined;
+}
+
+async function verifyLoggedInProfile(page: Page, profile: ResolvedProfile): Promise<void> {
+  if (profile.verifyLogin === false) return;
+
+  const portalName = await readPortalDisplayName(page);
+  if (!portalName) {
+    throw new EacliCommandError(
+      `Could not read portal display name to verify profile "${profile.key}" (expected "${profile.name}"). Portal markup may have changed — set verifyLogin:false only as a temporary workaround.`,
+      'PROFILE_MISMATCH'
+    );
+  }
+  if (!portalNameMatchesProfile(portalName, profile)) {
+    throw new EacliCommandError(
+      `Logged in as "${portalName}" but profile "${profile.key}" expects "${profile.name}". Check credentials in .eacli-profiles.json.`,
+      'PROFILE_MISMATCH'
+    );
+  }
+  if (process.env.DEBUG) {
+    console.log(chalk.gray(`[debug] Verified portal identity: ${portalName} (profile: ${profile.key})`));
+  }
+}
+
 export async function getAuthenticatedContext(options: AuthOptions = {}): Promise<AuthResult> {
+  const profile = resolveProfile(options);
+  const authStatePath = resolveAuthStatePath(profile.key);
+
   if (!existsSync(SESSION_DIR)) {
     mkdirSync(SESSION_DIR, { recursive: true });
   }
 
-  if (options.forceLogin && existsSync(AUTH_STATE_FILE)) {
-    unlinkSync(AUTH_STATE_FILE);
-    if (process.env.DEBUG) console.log(chalk.gray('[debug] Cleared saved session (force login)'));
+  if (options.forceLogin && existsSync(authStatePath)) {
+    unlinkSync(authStatePath);
+    if (process.env.DEBUG) {
+      console.log(chalk.gray(`[debug] Cleared saved session for profile "${profile.key}" (force login)`));
+    }
   }
 
   const browser = await chromium.launch({ headless: !process.env.DEBUG });
@@ -53,10 +98,14 @@ export async function getAuthenticatedContext(options: AuthOptions = {}): Promis
     viewport: { width: 1280, height: 720 },
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    ...(existsSync(AUTH_STATE_FILE) ? { storageState: AUTH_STATE_FILE } : {}),
+    ...(existsSync(authStatePath) ? { storageState: authStatePath } : {}),
   });
 
   const page = await context.newPage();
+
+  if (process.env.DEBUG && hasMultipleProfiles()) {
+    console.log(chalk.gray(`[debug] Using profile: ${profile.key} (${profile.name})`));
+  }
 
   await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
@@ -75,12 +124,12 @@ export async function getAuthenticatedContext(options: AuthOptions = {}): Promis
   }
 
   if (loginFormVisible) {
-    console.log('Logging in to Everyone Active...');
-    await performLogin(page);
+    console.log(`Logging in to Everyone Active as ${profile.name}...`);
+    await performLogin(page, profile);
     console.log('Login successful.');
-    await saveAuthState(context);
+    await saveAuthState(context, profile);
   } else {
-    console.log('Using existing session.');
+    console.log(`Using existing session (${profile.name}).`);
   }
 
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
@@ -90,19 +139,15 @@ export async function getAuthenticatedContext(options: AuthOptions = {}): Promis
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   }
 
+  await verifyLoggedInProfile(page, profile);
   await ensurePreferredSite(page);
   await ensureNoErrorPage(page, 'post-login dashboard');
 
-  return { browser, context, page };
+  return { browser, context, page, profile };
 }
 
-async function performLogin(page: Page): Promise<void> {
-  const username = process.env.USERNAME;
-  const password = process.env.PASSWORD;
-
-  if (!username || !password) {
-    throw new Error('USERNAME and PASSWORD must be set in .env file');
-  }
+async function performLogin(page: Page, profile: ResolvedProfile): Promise<void> {
+  const { username, password } = profile;
 
   const emailField = page.locator(
     '#ctl00_MainContent_InputLogin, input[name="ctl00$MainContent$InputLogin"], input[placeholder="Email Address"]'
@@ -154,14 +199,14 @@ async function performLogin(page: Page): Promise<void> {
 
     if (await failureLocator.isVisible().catch(() => false)) {
       const msg = (await failureLocator.textContent())?.trim();
-      throw new Error(`Login failed: ${msg || 'Invalid username or password'}`);
+      throw new Error(`Login failed for profile "${profile.key}": ${msg || 'Invalid username or password'}`);
     }
 
     const genericError = page.locator('text=/invalid|unsuccessful|try again|error/i').first();
     if (await genericError.isVisible().catch(() => false)) {
       const msg = (await genericError.textContent())?.trim();
       if (msg && msg.length < 200) {
-        throw new Error(`Login failed: ${msg}`);
+        throw new Error(`Login failed for profile "${profile.key}": ${msg}`);
       }
     }
 
@@ -169,7 +214,7 @@ async function performLogin(page: Page): Promise<void> {
       await page.screenshot({ path: '.eacli-session/last-login-failure.png', fullPage: true });
     } catch {}
     throw new Error(
-      `Login failed: still on login page after submit (URL: ${currentUrl}). Check credentials or site structure change. Screenshot saved to .eacli-session/last-login-failure.png`
+      `Login failed for profile "${profile.key}": still on login page after submit (URL: ${currentUrl}). Screenshot saved to .eacli-session/last-login-failure.png`
     );
   }
 }

@@ -19,6 +19,7 @@ import {
 } from './favourites.js';
 import { isJsonMode } from './output.js';
 import { resolveMember, type LinkedMember } from './members.js';
+import type { ResolvedProfile } from './profiles.js';
 
 export interface ListAvailabilityOptions {
   memberName?: string;
@@ -90,12 +91,14 @@ async function listOneActivity(
   page: Page,
   member: LinkedMember | null,
   activity: string,
-  date?: string
+  date?: string,
+  activeProfile?: ResolvedProfile
 ): Promise<AvailabilityGroup> {
   const opened = await openClassStatus(page, {
     ...(member?.name ? { memberName: member.name } : {}),
     activity,
     ...(date?.trim() ? { date } : {}),
+    ...(activeProfile ? { activeProfile } : {}),
   });
   const html = await page.content();
   const sessions = filterByDate(parseClassStatusSessions(html), date);
@@ -168,14 +171,18 @@ async function listAllBrowseActivities(
 }
 
 /** List bookable / waitlist slots. Without --activity, scans all Group Exercise classes. */
-export async function listAvailability(page: Page, options: ListAvailabilityOptions): Promise<ListAvailabilityResult> {
-  const member = await resolveMember(page, options.memberName);
+export async function listAvailability(
+  page: Page,
+  options: ListAvailabilityOptions,
+  activeProfile?: ResolvedProfile
+): Promise<ListAvailabilityResult> {
+  const member = await resolveMember(page, options.memberName, activeProfile);
 
   let groups: AvailabilityGroup[];
   let scannedActivities: number | undefined;
 
   if (options.activity?.trim()) {
-    const group = await listOneActivity(page, member, options.activity.trim(), options.date);
+    const group = await listOneActivity(page, member, options.activity.trim(), options.date, activeProfile);
     groups = [group];
   } else {
     const all = await listAllBrowseActivities(page, member, options.date);

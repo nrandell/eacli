@@ -6,6 +6,7 @@ import * as cheerio from 'cheerio';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
 import { parseSessionDateLabel } from './favourites.js';
 import { getMembers, switchMember } from './members.js';
+import { hasMultipleProfiles } from './profiles.js';
 import {
   MANAGE_BOOKINGS_URL,
   collectManageBookingRows,
@@ -211,7 +212,7 @@ export async function getBookings(page: Page): Promise<Booking[]> {
     }
   };
 
-  if (linkedMembers.length <= 1) {
+  if (hasMultipleProfiles() || linkedMembers.length <= 1) {
     if (process.env.DEBUG) {
       console.log(chalk.gray(`[debug] ${linkedMembers.length === 0 ? 'No linked members' : 'Single linked member'} — collecting from current context only`));
     }

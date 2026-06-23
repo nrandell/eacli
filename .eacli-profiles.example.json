@@ -1,0 +1,15 @@
+{
+  "default": "nick",
+  "profiles": {
+    "nick": {
+      "username": "nick@example.com",
+      "password": "your-password",
+      "name": "Nick Randell"
+    },
+    "hayley": {
+      "username": "hayley@example.com",
+      "password": "your-password",
+      "name": "Hayley Randell"
+    }
+  }
+}

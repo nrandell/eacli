@@ -13,6 +13,9 @@ export type EacliErrorCode =
   | 'ALREADY_BOOKED'
   | 'TIMEOUT'
   | 'VALIDATION_ERROR'
+  | 'PROFILE_NOT_FOUND'
+  | 'PROFILE_MISMATCH'
+  | 'AMBIGUOUS_PROFILE'
   | 'UNKNOWN';
 
 export interface EacliError {

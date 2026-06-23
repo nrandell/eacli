@@ -2,14 +2,14 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { closeAuthenticated, getAuthenticatedContext } from './auth.js';
+import { closeAuthenticated, getAuthenticatedContext, type AuthOptions } from './auth.js';
 import { bookClass, type BookClassResult } from './booking.js';
 import { cancelBooking, type CancelBookingResult } from './cancelBooking.js';
 import { getBookings, printBookings } from './bookings.js';
 import { doctorCommand } from './doctor.js';
 import { getFavourites, printFavourites } from './favourites.js';
 import { listAvailability, printAvailability } from './availability.js';
-import { getMembers, printMembers } from './members.js';
+import { getMembers, printMembers, printProfileSummaries } from './members.js';
 import {
   errorResponse,
   exitCodeForError,
@@ -20,6 +20,24 @@ import {
   successResponse,
   writeJson,
 } from './output.js';
+import { hasMultipleProfiles, listProfileSummaries } from './profiles.js';
+
+interface GlobalOptions {
+  json?: boolean;
+  profile?: string;
+}
+
+function globalOpts(): GlobalOptions {
+  return program.opts<GlobalOptions>();
+}
+
+function authOpts(extra: AuthOptions = {}): AuthOptions {
+  const profile = extra.profile ?? globalOpts().profile;
+  return {
+    ...extra,
+    ...(profile ? { profile } : {}),
+  };
+}
 
 function printBookResult(result: BookClassResult): void {
   const action = result.waitlisted ? 'Waitlisted for' : 'Booked';
@@ -51,16 +69,20 @@ async function withAuth<T>(
   command: string,
   debug: boolean | undefined,
   status: string,
-  fn: (page: Awaited<ReturnType<typeof getAuthenticatedContext>>['page']) => Promise<T>,
+  authOptions: AuthOptions,
+  fn: (
+    page: Awaited<ReturnType<typeof getAuthenticatedContext>>['page'],
+    profile: Awaited<ReturnType<typeof getAuthenticatedContext>>['profile']
+  ) => Promise<T>,
   print?: (data: T) => void
 ): Promise<void> {
   if (debug) process.env.DEBUG = '1';
   let auth: Awaited<ReturnType<typeof getAuthenticatedContext>> | undefined;
   try {
     logInfo(chalk.blue('Connecting to Everyone Active...'));
-    auth = await getAuthenticatedContext();
+    auth = await getAuthenticatedContext(authOpts(authOptions));
     logInfo(chalk.blue(status));
-    const data = await fn(auth.page);
+    const data = await fn(auth.page, auth.profile);
     if (isJsonMode()) {
       writeJson(successResponse(command, data));
     } else if (print) {
@@ -84,12 +106,13 @@ const program = new Command();
 program
   .name('eacli')
   .description(
-    'CLI to manage bookings at Everyone Active centres (uses Playwright). Session cookies are saved in .eacli-auth-state.json between runs.'
+    'CLI to manage bookings at Everyone Active centres (uses Playwright). Sessions are saved per profile in .eacli-session/.'
   )
-  .version('1.3.0')
+  .version('1.5.0')
   .option('--json', 'Emit JSON on stdout (for LLM / automation)')
+  .option('--profile <key>', 'Login profile key (separate EA account; see .eacli-profiles.json)')
   .hook('preAction', () => {
-    setJsonMode(Boolean(program.opts<{ json?: boolean }>().json));
+    setJsonMode(Boolean(program.opts<GlobalOptions>().json));
   });
 
 const bookingsCmd = program.command('bookings').description('Manage your bookings');
@@ -97,7 +120,7 @@ const bookingsCmd = program.command('bookings').description('Manage your booking
 bookingsCmd
   .command('cancel')
   .description('Cancel a booking for a member on a given date')
-  .option('--member <name>', 'Member name (partial match; default: currently selected)')
+  .option('--member <name>', 'Member / profile name (partial match; default: active profile)')
   .requiredOption('--activity <name>', 'Activity name (partial match, e.g. hiit)')
   .requiredOption('--date <date>', 'Date of the booking (e.g. saturday, 2026-05-24)')
   .option('--debug', 'Enable verbose debug logging')
@@ -106,12 +129,17 @@ bookingsCmd
       'bookings.cancel',
       options.debug,
       `Cancelling ${options.activity} on ${options.date}...`,
-      (page) =>
-        cancelBooking(page, {
-          ...(options.member ? { memberName: options.member } : {}),
-          activity: options.activity,
-          date: options.date,
-        }),
+      { member: options.member },
+      (page, profile) =>
+        cancelBooking(
+          page,
+          {
+            ...(options.member ? { memberName: options.member } : { memberName: profile.name }),
+            activity: options.activity,
+            date: options.date,
+          },
+          profile
+        ),
       printCancelResult
     );
   });
@@ -119,7 +147,7 @@ bookingsCmd
 program
   .command('book')
   .description('Book a Group Exercise class for a member on a given date')
-  .requiredOption('--member <name>', 'Member name (partial match, e.g. Alex)')
+  .requiredOption('--member <name>', 'Member / profile name (partial match, e.g. hayley)')
   .requiredOption('--activity <name>', 'Activity name (partial match, e.g. hiit)')
   .requiredOption('--date <date>', 'Date to book (e.g. saturday, 2026-05-24, 24/05/2026)')
   .option('--debug', 'Enable verbose debug logging')
@@ -128,12 +156,17 @@ program
       'book',
       options.debug,
       `Booking ${options.activity} for ${options.member} on ${options.date}...`,
-      (page) =>
-        bookClass(page, {
-          memberName: options.member,
-          activity: options.activity,
-          date: options.date,
-        }),
+      { member: options.member },
+      (page, profile) =>
+        bookClass(
+          page,
+          {
+            memberName: options.member,
+            activity: options.activity,
+            date: options.date,
+          },
+          profile
+        ),
       printBookResult
     );
   });
@@ -141,17 +174,25 @@ program
 program
   .command('login')
   .description('Force a fresh login (useful after password change)')
+  .option('--profile <key>', 'Profile to log in (default profile if omitted)')
+  .option('--member <name>', 'Resolve profile from member name')
   .option('--debug', 'Enable verbose debug logging')
   .action(async (options) => {
     if (options.debug) process.env.DEBUG = '1';
     try {
       logInfo(chalk.blue('Forcing re-authentication...'));
-      const auth = await getAuthenticatedContext({ forceLogin: true });
+      const auth = await getAuthenticatedContext(
+        authOpts({
+          forceLogin: true,
+          profile: options.profile,
+          member: options.member,
+        })
+      );
       await closeAuthenticated(auth);
       if (isJsonMode()) {
-        writeJson(successResponse('login', { loggedIn: true }));
+        writeJson(successResponse('login', { loggedIn: true, profile: auth.profile.key }));
       } else {
-        console.log(chalk.green('Login complete. Session saved.'));
+        console.log(chalk.green(`Login complete for profile "${auth.profile.key}". Session saved.`));
       }
     } catch (err: unknown) {
       const error = mapErrorFromThrowable(err);
@@ -171,12 +212,26 @@ program
     await doctorCommand();
   });
 
+const profilesCmd = program.command('profiles').description('Manage separate Everyone Active login profiles');
+
+profilesCmd
+  .command('list')
+  .description('List configured profiles and saved session status')
+  .action(() => {
+    const profiles = listProfileSummaries();
+    if (isJsonMode()) {
+      writeJson(successResponse('profiles.list', { profiles }));
+    } else {
+      printProfileSummaries(profiles);
+    }
+  });
+
 const availabilityCmd = program.command('availability').description('See which sessions can be booked or waitlisted');
 
 availabilityCmd
   .command('list')
   .description('List available and waitlist slots (defaults: selected member, all Group Exercise classes)')
-  .option('--member <name>', 'Member name (partial match; default: currently selected)')
+  .option('--member <name>', 'Member / profile name (partial match; default: active profile)')
   .option('--activity <name>', 'Activity name (partial match; default: scan all Group Exercise classes)')
   .option('--date <date>', 'Only show this day (e.g. saturday, 2026-05-24)')
   .option('--debug', 'Enable verbose debug logging')
@@ -185,12 +240,17 @@ availabilityCmd
       'availability.list',
       options.debug,
       'Fetching availability...',
-      (page) =>
-        listAvailability(page, {
-          ...(options.member ? { memberName: options.member } : {}),
-          ...(options.activity ? { activity: options.activity } : {}),
-          ...(options.date ? { date: options.date } : {}),
-        }),
+      { member: options.member },
+      (page, profile) =>
+        listAvailability(
+          page,
+          {
+            ...(options.member ? { memberName: options.member } : { memberName: profile.name }),
+            ...(options.activity ? { activity: options.activity } : {}),
+            ...(options.date ? { date: options.date } : {}),
+          },
+          profile
+        ),
       printAvailability
     );
   });
@@ -200,7 +260,7 @@ const favouritesCmd = program.command('favourites').description('Manage your Qui
 favouritesCmd
   .command('book')
   .description('Book a class (alias for `eacli book`)')
-  .requiredOption('--member <name>', 'Member name (partial match, e.g. Alex)')
+  .requiredOption('--member <name>', 'Member / profile name (partial match)')
   .requiredOption('--activity <name>', 'Activity name (partial match, e.g. hiit)')
   .requiredOption('--date <date>', 'Date to book (e.g. saturday, 2026-05-24, 24/05/2026)')
   .option('--debug', 'Enable verbose debug logging')
@@ -209,12 +269,17 @@ favouritesCmd
       'favourites.book',
       options.debug,
       `Booking ${options.activity} for ${options.member} on ${options.date}...`,
-      (page) =>
-        bookClass(page, {
-          memberName: options.member,
-          activity: options.activity,
-          date: options.date,
-        }),
+      { member: options.member },
+      (page, profile) =>
+        bookClass(
+          page,
+          {
+            memberName: options.member,
+            activity: options.activity,
+            date: options.date,
+          },
+          profile
+        ),
       printBookResult
     );
   });
@@ -222,12 +287,14 @@ favouritesCmd
 favouritesCmd
   .command('list')
   .description('List your QuickBook favourites (classes/activities to book again)')
+  .option('--member <name>', 'Filter by member / profile name')
   .option('--debug', 'Enable verbose debug logging')
   .action(async (options) => {
     await withAuth(
       'favourites.list',
       options.debug,
       'Fetching favourites...',
+      { member: options.member },
       async (page) => {
         const favourites = await getFavourites(page);
         return { favourites };
@@ -238,15 +305,26 @@ favouritesCmd
 
 program
   .command('members')
-  .description('List members who can be booked for')
+  .description('List bookable members (configured profiles or portal linked members)')
   .option('--debug', 'Enable verbose debug logging')
   .action(async (options) => {
+    if (hasMultipleProfiles()) {
+      const profiles = listProfileSummaries();
+      if (isJsonMode()) {
+        writeJson(successResponse('members', { profiles }));
+      } else {
+        printProfileSummaries(profiles);
+      }
+      return;
+    }
+
     await withAuth(
       'members',
       options.debug,
       'Fetching linked members...',
-      async (page) => {
-        const members = await getMembers(page);
+      {},
+      async (page, profile) => {
+        const members = await getMembers(page, profile);
         return { members };
       },
       (data) => printMembers(data.members)
@@ -255,13 +333,15 @@ program
 
 bookingsCmd
   .command('list')
-  .description('List your upcoming bookings')
+  .description('List upcoming bookings for the active profile')
+  .option('--member <name>', 'Select profile by member name')
   .option('--debug', 'Enable verbose debug logging and HTML dumps')
   .action(async (options) => {
     await withAuth(
       'bookings.list',
       options.debug,
       'Retrieving bookings...',
+      { member: options.member },
       async (page) => {
         const bookings = await getBookings(page);
         return { bookings };

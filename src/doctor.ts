@@ -3,6 +3,13 @@ import path from 'path';
 import chalk from 'chalk';
 import { chromium } from 'playwright';
 import { successResponse, type EacliResponse, writeJson, isJsonMode } from './output.js';
+import {
+  hasProfilesFile,
+  listProfileSummaries,
+  loadProfilesConfig,
+  profilesConfigPath,
+  resolveAuthStatePath,
+} from './profiles.js';
 
 export interface DoctorCheck {
   name: string;
@@ -15,39 +22,69 @@ export interface DoctorResult {
   ready: boolean;
 }
 
-const AUTH_STATE = '.eacli-auth-state.json';
+const LEGACY_AUTH_STATE = '.eacli-auth-state.json';
 
 export async function runDoctor(): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
 
-  const envPath = path.resolve('.env');
-  if (fs.existsSync(envPath)) {
-    const envText = fs.readFileSync(envPath, 'utf8');
-    const hasUser = /\bUSERNAME\s*=/i.test(envText);
-    const hasPass = /\bPASSWORD\s*=/i.test(envText);
-    checks.push({
-      name: 'env_file',
-      ok: hasUser && hasPass,
-      message:
-        hasUser && hasPass
-          ? '.env contains USERNAME and PASSWORD'
-          : '.env missing USERNAME or PASSWORD',
-    });
+  if (hasProfilesFile()) {
+    try {
+      const config = loadProfilesConfig();
+      const keys = Object.keys(config.profiles);
+      checks.push({
+        name: 'profiles_file',
+        ok: true,
+        message: `${profilesConfigPath()} defines ${keys.length} profile(s): ${keys.join(', ')} (default: ${config.default})`,
+      });
+      for (const summary of listProfileSummaries()) {
+        checks.push({
+          name: `session_${summary.key}`,
+          ok: summary.hasSession,
+          message: summary.hasSession
+            ? `Session for profile "${summary.key}" (${resolveAuthStatePath(summary.key)})`
+            : `No session for profile "${summary.key}" — run: eacli login --profile ${summary.key}`,
+        });
+      }
+    } catch (err: unknown) {
+      checks.push({
+        name: 'profiles_file',
+        ok: false,
+        message: `Invalid ${profilesConfigPath()}: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
   } else {
+    const envPath = path.resolve('.env');
+    if (fs.existsSync(envPath)) {
+      const envText = fs.readFileSync(envPath, 'utf8');
+      const hasUser = /\bUSERNAME\s*=/i.test(envText);
+      const hasPass = /\bPASSWORD\s*=/i.test(envText);
+      checks.push({
+        name: 'env_file',
+        ok: hasUser && hasPass,
+        message:
+          hasUser && hasPass
+            ? '.env contains USERNAME and PASSWORD (single default profile)'
+            : '.env missing USERNAME or PASSWORD',
+      });
+    } else {
+      checks.push({
+        name: 'env_file',
+        ok: false,
+        message: 'No .env or .eacli-profiles.json — copy .env.example or .eacli-profiles.example.json',
+      });
+    }
+
+    const sessionPath = fs.existsSync(resolveAuthStatePath('default'))
+      ? resolveAuthStatePath('default')
+      : LEGACY_AUTH_STATE;
     checks.push({
-      name: 'env_file',
-      ok: false,
-      message: 'No .env file found (create one with USERNAME and PASSWORD)',
+      name: 'auth_state',
+      ok: fs.existsSync(sessionPath),
+      message: fs.existsSync(sessionPath)
+        ? `Session file ${sessionPath} exists`
+        : `No session file — run eacli login once`,
     });
   }
-
-  checks.push({
-    name: 'auth_state',
-    ok: fs.existsSync(AUTH_STATE),
-    message: fs.existsSync(AUTH_STATE)
-      ? `Session file ${AUTH_STATE} exists`
-      : `No ${AUTH_STATE} — run eacli login once`,
-  });
 
   try {
     const browser = await chromium.launch({ headless: true });

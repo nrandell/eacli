@@ -12,6 +12,8 @@ dist/
 # Session / auth state
 .eacli-session/
 .eacli-auth-state.json
+.eacli-profiles.json
+.eacli-profiles.test.json
 .eacli-cookies.json
 .eacli-agent-state.json
 *.html

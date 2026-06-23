@@ -10,7 +10,7 @@
       "type": "function",
       "function": {
         "name": "list_members",
-        "description": "List linked members on the Everyone Active account. Call this first when the user says \"me\" or \"book for me\" — use the sole member if only one exists; otherwise ask which member.",
+        "description": "List bookable household members. **Response shape (v1.5+):** when multiple profiles exist in .eacli-profiles.json, returns `data.profiles` (array of { key, name, hasSession, default }) without logging in. Single-account .env setups still return `data.members` (portal linked members). Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works. Call this first when the user says \"me\" or \"book for me\" and multiple people may exist.",
         "parameters": {
           "type": "object",
           "properties": {}
@@ -21,10 +21,17 @@
       "type": "function",
       "function": {
         "name": "list_bookings",
-        "description": "List upcoming bookings from Manage Bookings (all gvBookings tables: waitlist + confirmed, paged + household rows). Each session has a `members` array naming who is booked on that class and a `status` of \"Confirmed\" or \"Waiting List\". Always use the `members` array (never look for a singular `member` field — it no longer exists). Multiple names means multiple people are booked on that session. One object per class session. Attribution is best-effort (GridView pagination + member context); for critical verification call `list_members` + `check_availability` per member if needed.",
+        "description": "List upcoming bookings for the active profile only (one EA login). Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works. Pass member or profile to switch. Each booking has a members array and status \"Confirmed\" or \"Waiting List\".",
         "parameters": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "profile": {
+              "type": "string"
+            },
+            "member": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -32,10 +39,13 @@
       "type": "function",
       "function": {
         "name": "list_favourites",
-        "description": "List QuickBook favourite activities on the member home page.",
+        "description": "List QuickBook favourite activities for the active profile. Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works.",
         "parameters": {
           "type": "object",
           "properties": {
+            "profile": {
+              "type": "string"
+            },
             "member": {
               "type": "string"
             }
@@ -47,7 +57,7 @@
       "type": "function",
       "function": {
         "name": "check_availability",
-        "description": "Check bookable or waitlist slots for in-centre Group Exercise 16+ Yrs classes. Always pass activity and date (do not scan all activities). Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Response groups include alreadyBooked (true when the member holds this class) and bookable (true when slots exist). If alreadyBooked is true, do not call book_class — tell the user they are already booked.",
+        "description": "Check bookable or waitlist slots for in-centre Group Exercise 16+ Yrs classes. Always pass activity and date. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language for edge-of-window classes. Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works. Response groups include alreadyBooked and bookable.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -57,7 +67,10 @@
             },
             "date": {
               "type": "string",
-              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes."
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability and edge-of-window classes."
+            },
+            "profile": {
+              "type": "string"
             },
             "member": {
               "type": "string"
@@ -74,7 +87,7 @@
       "type": "function",
       "function": {
         "name": "book_class",
-        "description": "Book an in-centre Group Exercise class. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Requires user confirmation after check_availability (skip if alreadyBooked was true). Pass member explicitly when multiple household members exist — first names work. Returns ALREADY_BOOKED if the portal shows the member is already on that class.",
+        "description": "Book an in-centre Group Exercise class for the active profile. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language for edge-of-window classes. Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works. Requires user confirmation after check_availability. Pass member or profile explicitly when multiple household members exist. Returns ALREADY_BOOKED when appropriate.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -84,7 +97,10 @@
             },
             "date": {
               "type": "string",
-              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes."
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability and edge-of-window classes."
+            },
+            "profile": {
+              "type": "string"
             },
             "member": {
               "type": "string"
@@ -101,7 +117,7 @@
       "type": "function",
       "function": {
         "name": "cancel_booking",
-        "description": "Cancel an existing booking. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. For reliability with household members (and to avoid instances not yet in the portal view or booking window), prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language. Requires user confirmation. Match by activity and date.",
+        "description": "Cancel an existing booking for the active profile. Dates accept saturday, next sunday, today, 2026-05-25, or 25/05/2026. Prefer explicit DD/MM/YYYY or YYYY-MM-DD over natural language for edge-of-window classes. Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works. Requires user confirmation.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -111,7 +127,10 @@
             },
             "date": {
               "type": "string",
-              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability on household accounts and edge-of-window classes."
+              "description": "Session date: natural language (saturday, next sunday, today) or ISO (2026-05-25) or UK (25/05/2026). Prefer explicit DD/MM/YYYY or YYYY-MM-DD for reliability and edge-of-window classes."
+            },
+            "profile": {
+              "type": "string"
             },
             "member": {
               "type": "string"
@@ -128,12 +147,18 @@
       "type": "function",
       "function": {
         "name": "login",
-        "description": "Force login to Everyone Active (uses USERNAME/PASSWORD from .env). Use when session errors occur.",
+        "description": "Force login to Everyone Active for a profile. Household members need separate EA logins in .eacli-profiles.json — pass member or profile to select whose account to use. The portal member switcher no longer works. Run once per profile after setup. Uses credentials from .eacli-profiles.json or .env (default profile).",
         "parameters": {
           "type": "object",
           "properties": {
             "force": {
               "type": "boolean"
+            },
+            "profile": {
+              "type": "string"
+            },
+            "member": {
+              "type": "string"
             }
           }
         }
@@ -143,7 +168,7 @@
       "type": "function",
       "function": {
         "name": "doctor",
-        "description": "Check local setup: .env credentials, saved session file, Playwright install. No browser login.",
+        "description": "Check local setup: profiles or .env credentials, per-profile session files, Playwright install. No browser login.",
         "parameters": {
           "type": "object",
           "properties": {}

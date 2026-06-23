@@ -5,11 +5,12 @@ Everyone Active gym bookings CLI + MCP server. **Read this file and [docs/agents
 ## Quick rules
 
 1. **Confirm** with the user before `book_class` or `cancel_booking` (activity, date, time, member).
-2. **`list_members` first** when the user says "me" / "my" and multiple linked members may exist.
+2. **`list_members` first** when the user says "me" / "my" and multiple household members may exist. Each person needs a **separate EA login** (`.eacli-profiles.json`) — pass **`member`** or **`profile`** on book/cancel/availability/bookings.
 3. **`check_availability`** before booking — always pass **activity** and **date** (never scan all activities).
-4. **`list_bookings`**: use each session's **`members`** array (no singular `member` field). Mention **`status`** when it is `Waiting List`.
-5. **`book_class` `confirmed: false`** is not always failure — verify with `list_bookings` before retrying.
-6. Set MCP **timeout ≥ 180s** — Playwright calls often take 30–90s.
+4. **`list_members`**: multi-profile setups return **`data.profiles`** (not `members`). Single `.env` accounts still use **`data.members`**.
+5. **`list_bookings`**: use each session's **`members`** array (no singular `member` field). Mention **`status`** when it is `Waiting List`.
+6. **`book_class` `confirmed: false`** is not always failure — verify with `list_bookings` before retrying.
+7. Set MCP **timeout ≥ 180s** — Playwright calls often take 30–90s. **Reload MCP** after editing `.eacli-profiles.json`.
 
 ## Documentation map
 

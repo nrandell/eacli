@@ -16,6 +16,7 @@ import {
   sameCalendarDay,
 } from './favourites.js';
 import { resolveMember } from './members.js';
+import type { ResolvedProfile } from './profiles.js';
 
 export interface BookClassOptions {
   memberName: string;
@@ -72,15 +73,20 @@ async function confirmBookingBasket(page: Page): Promise<{ confirmed: boolean; c
 }
 
 /** Book a Group Exercise class for a member on a given date (browse or QuickBook). */
-export async function bookClass(page: Page, options: BookClassOptions): Promise<BookClassResult> {
+export async function bookClass(
+  page: Page,
+  options: BookClassOptions,
+  activeProfile?: ResolvedProfile
+): Promise<BookClassResult> {
   const targetDate = resolveTargetDate(options.date);
   const dateLabel = formatEaDateLabel(targetDate);
-  const member = await resolveMember(page, options.memberName);
+  const member = await resolveMember(page, options.memberName, activeProfile);
 
   const opened = await openClassStatus(page, {
     ...(member?.name ? { memberName: member.name } : {}),
     activity: options.activity,
     date: options.date,
+    ...(activeProfile ? { activeProfile } : {}),
   });
 
   if (process.env.DEBUG) {

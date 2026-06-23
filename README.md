@@ -60,17 +60,30 @@ node dist/index.js bookings list
 
 | File | Purpose |
 |------|---------|
-| [`.env`](.env.example) | `USERNAME` and `PASSWORD` (gitignored) |
-| `.eacli-auth-state.json` | Saved login cookies (gitignored, created by `login`) |
+| [`.env`](.env.example) | Single-account `USERNAME` and `PASSWORD` (gitignored) |
+| [`.eacli-profiles.example.json`](.eacli-profiles.example.json) | Template for household members with separate EA logins |
+| `.eacli-profiles.json` | Per-person credentials + display names (gitignored) |
+| `.eacli-session/auth-<profile>.json` | Saved login cookies per profile (gitignored) |
+| `.eacli-auth-state.json` | Legacy session file for default profile (gitignored) |
 | `.eacli-session/` | Debug HTML/screenshots when using `--debug` (gitignored) |
 
-Never commit `.env`, session files, or real credentials. Only [`.env.example`](.env.example) belongs in git.
+**Household setup** (portal member switcher removed — each person logs in separately):
+
+```bash
+cp .eacli-profiles.example.json .eacli-profiles.json
+# Edit credentials and names, then log in once per profile:
+npm run dev -- login --profile nick
+npm run dev -- login --profile hayley
+npm run dev -- book --member hayley --activity combat --date 2026-06-30
+```
+
+Never commit `.env`, `.eacli-profiles.json`, session files, or real credentials.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `members` | Linked members who can be booked for |
+| `members` / `profiles list` | Configured login profiles (household) or portal linked members |
 | `bookings list` | Upcoming bookings |
 | `bookings cancel --activity <name> --date <date>` | Cancel a booking (`--member` optional) |
 | `availability list` | Available / waitlist slots |

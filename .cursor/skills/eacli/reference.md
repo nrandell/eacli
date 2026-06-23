@@ -6,7 +6,7 @@
 
 | Tool | Purpose |
 |------|---------|
-| `list_members` | Linked accounts on the membership |
+| `list_members` | Bookable people — `data.profiles` (multi-profile) or `data.members` (single `.env`) |
 | `list_bookings` | Upcoming bookings (per session, with `members[]`) |
 | `list_favourites` | QuickBook shortcuts |
 | `check_availability` | Slots for one activity + date |
@@ -48,6 +48,31 @@ npm run dev -- doctor --json
 }
 ```
 
+## `list_members` data shape (v1.5+)
+
+**Multiple profiles** (`.eacli-profiles.json` with 2+ people) — no browser login:
+
+```json
+{
+  "profiles": [
+    { "key": "nick", "name": "Nick Randell", "hasSession": true, "default": true },
+    { "key": "hayley", "name": "Hayley Randell", "hasSession": false, "default": false }
+  ]
+}
+```
+
+**Single `.env` account** — opens portal, returns linked members:
+
+```json
+{
+  "members": [
+    { "name": "Nick Randell", "id": "123", "selected": true, "sliderSelector": "#..." }
+  ]
+}
+```
+
+Agents must check whether `profiles` or `members` is present.
+
 ## `list_bookings` data shape
 
 Each item in `data.bookings`:
@@ -83,6 +108,9 @@ Each item in `data.bookings`:
 | `NO_SLOTS` | No book/waitlist button |
 | `TIMEOUT` | Playwright navigation or locator timeout |
 | `VALIDATION_ERROR` | Bad args or missing member |
+| `PROFILE_NOT_FOUND` | No matching profile key/name |
+| `PROFILE_MISMATCH` | Logged-in portal identity does not match profile |
+| `AMBIGUOUS_PROFILE` | Member query matches multiple profiles |
 | `UNKNOWN` | Other |
 
 ## Availability responses and pageMessage

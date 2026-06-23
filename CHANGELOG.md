@@ -9,7 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multi-profile login (v1.5.0)** — Household members with separate Everyone Active credentials use `.eacli-profiles.json` (see `.eacli-profiles.example.json`). Per-profile sessions in `.eacli-session/auth-<key>.json`. CLI global `--profile`; `--member` auto-selects profile. Commands: `profiles list`, `login --profile <key>`.
 - **Self-documenting agent integration** — [AGENTS.md](AGENTS.md) (repo root) and [docs/agents.md](docs/agents.md) as the canonical guide for OpenClaw, Cursor, and other MCP hosts. Cursor skill and Hermes doc now point here.
+
+### Changed
+
+- **`list_members` response (multi-profile)** — When two or more profiles are configured, returns `data.profiles` instead of `data.members`. Single-account `.env` behaviour unchanged (`data.members`). Agents must check which field is present.
+
+### Fixed
+
+- **`book_class` without member** — No longer rejects single-profile `.eacli-profiles.json` setups; only requires `member`/`profile` when `hasMultipleProfiles()`.
+- **Profile name matching** — Member resolution uses profile key, full name, or first name only (surname-only queries like `randell` no longer match ambiguously).
+- **Post-login verification** — Fails if portal display name cannot be read or does not match the profile (brittle by design).
+- **Legacy session drift** — Migrating `.eacli-auth-state.json` copies to `auth-default.json` and deletes the legacy file; saves also remove stale legacy sessions.
 
 ### Fixed
 

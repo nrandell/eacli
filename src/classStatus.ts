@@ -11,6 +11,7 @@ import {
   type Favourite,
 } from './favourites.js';
 import { resolveMember, type LinkedMember } from './members.js';
+import type { ResolvedProfile } from './profiles.js';
 
 /** In-centre group classes (HIIT, Combat, etc.) — not "Group Exercise - Virtual". */
 const GROUP_EXERCISE_IN_PERSON_SELECTOR =
@@ -309,15 +310,17 @@ export interface OpenClassStatusOptions {
   activity: string;
   /** Prefer a QuickBook favourite matching this day (e.g. saturday). */
   date?: string;
+  activeProfile?: ResolvedProfile;
 }
 
 /** Open a favourite and return parsed sessions from the class status page. */
 export async function fetchSessionsForFavourite(
   page: Page,
   member: LinkedMember | null,
-  favourite: Favourite
+  favourite: Favourite,
+  activeProfile?: ResolvedProfile
 ): Promise<{ sessions: ClassSession[]; pageMessage?: string }> {
-  if (member) await resolveMember(page, member.name);
+  if (member) await resolveMember(page, member.name, activeProfile);
   await openViaFavourite(page, favourite);
   await ensureNoErrorPage(page, 'class-status');
   const html = await page.content();
@@ -336,7 +339,7 @@ export interface OpenClassStatusResult {
 
 /** Navigate to the class status (slot picker) page for an activity. */
 export async function openClassStatus(page: Page, options: OpenClassStatusOptions): Promise<OpenClassStatusResult> {
-  const member = await resolveMember(page, options.memberName);
+  const member = await resolveMember(page, options.memberName, options.activeProfile);
   let favourites = await collectFavouritesForMember(page, member ?? undefined);
   if (favourites.length === 0) {
     favourites = favouritesFromBookingRows(await collectManageBookingRows(page));

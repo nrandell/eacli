@@ -10,12 +10,34 @@ Canonical guide for using eacli from **OpenClaw**, Cursor, or any MCP-capable ag
 cd <EACLI_ROOT>
 npm install
 npx playwright install chromium
-cp .env.example .env   # USERNAME + PASSWORD for Everyone Active
+cp .env.example .env   # single-account: USERNAME + PASSWORD
+# Household (separate EA logins per person):
+# cp .eacli-profiles.example.json .eacli-profiles.json
 npm run dev -- doctor
-npm run dev -- login   # once; may open a browser
+npm run dev -- login   # once per profile: login --profile nick
 ```
 
-Session cookies are saved in `.eacli-auth-state.json`. Each MCP/CLI call launches Playwright (typically **30–90 seconds** per operation).
+Session cookies are saved per profile in `.eacli-session/auth-<profile>.json`. Each MCP/CLI call launches Playwright (typically **30–90 seconds** per operation).
+
+### Configuration: `.env` vs `.eacli-profiles.json`
+
+| Setup | Use |
+|-------|-----|
+| **One person** | `.env` with `USERNAME` / `PASSWORD` only (implicit `default` profile) |
+| **Household (2+ EA logins)** | `.eacli-profiles.json` — one entry per person with their own credentials |
+
+We **do not require** `.eacli-profiles.json` for everyone: single-user installs keep working with `.env`. Enforcing profiles globally would break that path without improving single-account flows. For households, profiles are required in practice because the portal member switcher is gone.
+
+**Profile config cache:** `loadProfilesConfig()` caches `.eacli-profiles.json` for the lifetime of the MCP server process. After editing credentials or adding profiles, run `openclaw mcp reload` / restart the MCP host (CLI one-shot commands always reload).
+
+### `list_members` JSON shape (v1.5+)
+
+| Condition | `data` field | Contents |
+|-----------|--------------|----------|
+| Multiple profiles in `.eacli-profiles.json` | `profiles` | `{ key, name, hasSession, default }[]` — no browser login |
+| Single-account `.env` | `members` | Portal linked members (legacy shape) |
+
+Always check which field is present before parsing.
 
 ---
 
@@ -178,6 +200,9 @@ Pass natural language through: `saturday`, `next sunday`, `today`, `2026-05-25`,
 | `AMBIGUOUS_MEMBER` | Multiple bookings match — need member |
 | `MEMBER_NOT_FOUND` | Name not in linked members |
 | `MEMBER_SWITCH_FAILED` | Could not switch linked member |
+| `PROFILE_NOT_FOUND` | No profile matches `--profile` / `--member` |
+| `PROFILE_MISMATCH` | Portal display name does not match profile (or unreadable) |
+| `AMBIGUOUS_PROFILE` | Member query matches multiple profiles (e.g. shared first name) |
 | `NOT_LOGGED_IN` | Login required (`login` tool or `npm run dev -- login`) |
 | `SITE_ERROR` | Portal error page |
 | `TIMEOUT` | Playwright timeout — retry or increase MCP timeout |
@@ -187,7 +212,7 @@ Pass natural language through: `saturday`, `next sunday`, `today`, `2026-05-25`,
 ## Portal quirks
 
 - **Manage Bookings layout** — The portal uses separate tables for waitlist vs confirmed bookings. `list_bookings` and `cancel_booking` parse all of them.
-- **Secondary linked members** — QuickBook/favourite navigation can return empty sessions plus an "on behalf of …" banner even when browse would show slots. Tools auto-fallback to browse when needed; still pass explicit full member name and precise dates.
+- **Household members** — The portal no longer switches linked members. Configure `.eacli-profiles.json` (one EA login per person). Pass `member` or `profile` on every tool so eacli logs into the right account. `list_bookings` returns only the active profile's bookings.
 - **`book_class` confirmation** — `confirmed: false` does not always mean failure. Check `.eacli-session/last-book-result.html` and call `list_bookings` before retrying.
 - **`check_availability` `pageMessage`** — Warning banner text on the class page; if sessions are also returned, prefer the sessions for decisions.
 
