@@ -17,7 +17,7 @@ export const memberParam = z
 export const activityParam = z
   .string()
   .describe(
-    'Activity name (partial match), e.g. hiit, combat, bodycombat. In-centre classes use Group Exercise 16+ Yrs: "combat" on Sunday maps to BodyCombat Sun, on Thursday to Combat Thu. Virtual classes are prefixed "Vir".'
+    'Activity name (partial match). Prefer compact names: hiit, combat, bodycombat (not spaced portal labels like "h I I t"). Portal may display "H I I T Sat 08:25" — either form works, but omit day/time unless matching a full label. In-centre classes use Group Exercise 16+ Yrs: "combat" Sunday → BodyCombat Sun, Thursday → Combat Thu. Virtual classes are prefixed "Vir".'
   );
 
 export const dateParam = z

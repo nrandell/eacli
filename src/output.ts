@@ -12,6 +12,7 @@ export type EacliErrorCode =
   | 'NO_SLOTS'
   | 'ALREADY_BOOKED'
   | 'TIMEOUT'
+  | 'NETWORK_ERROR'
   | 'VALIDATION_ERROR'
   | 'PROFILE_NOT_FOUND'
   | 'PROFILE_MISMATCH'
@@ -21,6 +22,10 @@ export type EacliErrorCode =
 export interface EacliError {
   message: string;
   code: EacliErrorCode;
+  /** Relative path to the run log for this command (when available). */
+  logPath?: string;
+  /** Diagnostic artifact paths (HTML/PNG dumps). */
+  artifacts?: string[];
 }
 
 export interface EacliResponse<T> {
@@ -68,6 +73,9 @@ export function logInfo(message: string): void {
   console.error(message);
 }
 
+const NETWORK_HINT =
+  ' Transient network error — wait a few seconds and retry once; check VPN/Wi-Fi if it persists.';
+
 export function mapErrorFromThrowable(err: unknown): EacliError {
   if (err instanceof EacliCommandError) {
     return { message: err.message, code: err.code };
@@ -79,7 +87,11 @@ export function mapErrorFromThrowable(err: unknown): EacliError {
   if (/no session on/i.test(message)) {
     return { message, code: 'NO_SESSION' };
   }
-  if (/activity .* not found/i.test(message) || /no group exercise activities match/i.test(message)) {
+  if (
+    /activity .* not found/i.test(message) ||
+    /no group exercise activities match/i.test(message) ||
+    /activity list was empty/i.test(message)
+  ) {
     return { message, code: 'ACTIVITY_NOT_FOUND' };
   }
   if (/no booking found/i.test(message)) {
@@ -113,6 +125,21 @@ export function mapErrorFromThrowable(err: unknown): EacliError {
   if (/booking basket did not load/i.test(message)) {
     return { message, code: 'TIMEOUT' };
   }
+
+  // Network flakiness (before generic timeout so ERR_TIMED_OUT is NETWORK_ERROR)
+  if (
+    /net::ERR_/i.test(message) ||
+    /ERR_NETWORK_CHANGED/i.test(message) ||
+    /ERR_CONNECTION_/i.test(message) ||
+    /ERR_INTERNET_DISCONNECTED/i.test(message) ||
+    /ERR_NAME_NOT_RESOLVED/i.test(message) ||
+    /ERR_EMPTY_RESPONSE/i.test(message) ||
+    /ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/i.test(message)
+  ) {
+    const withHint = message.includes('retry once') ? message : `${message}.${NETWORK_HINT}`;
+    return { message: withHint, code: 'NETWORK_ERROR' };
+  }
+
   if (
     err instanceof Error &&
     (err.name === 'TimeoutError' || /timeout.*exceeded/i.test(message) || /waiting for locator/i.test(lower))
@@ -121,6 +148,16 @@ export function mapErrorFromThrowable(err: unknown): EacliError {
   }
 
   return { message, code: 'UNKNOWN' };
+}
+
+/** Attach run-log diagnostics onto a mapped error (mutates for convenience). */
+export function attachDiagnostics(
+  error: EacliError,
+  opts: { logPath?: string; artifacts?: string[] }
+): EacliError {
+  if (opts.logPath) error.logPath = opts.logPath;
+  if (opts.artifacts && opts.artifacts.length > 0) error.artifacts = opts.artifacts;
+  return error;
 }
 
 export function exitCodeForError(code: EacliErrorCode): number {

@@ -3,7 +3,9 @@ import type { Browser, BrowserContext, Page } from 'playwright';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import chalk from 'chalk';
 import { MEMBER_HOME_URL, ensurePreferredSite } from './connect.js';
+import { safeGoto } from './nav.js';
 import { EacliCommandError } from './output.js';
+import { getActiveRunLog } from './runLog.js';
 import {
   hasMultipleProfiles,
   portalNameMatchesProfile,
@@ -103,45 +105,51 @@ export async function getAuthenticatedContext(options: AuthOptions = {}): Promis
 
   const page = await context.newPage();
 
+  const log = getActiveRunLog();
+  log?.setProfile(profile.key);
   if (process.env.DEBUG && hasMultipleProfiles()) {
     console.log(chalk.gray(`[debug] Using profile: ${profile.key} (${profile.name})`));
   }
 
-  await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+  log?.phase('connecting', { profile: profile.key });
+  await safeGoto(page, MEMBER_HOME_URL, { timeout: 20000, label: 'member-home' }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 
   let loginFormVisible = await isLoginFormVisible(page);
 
   if (!loginFormVisible && !(await isLoggedIn(page))) {
-    await page.goto(CONNECT_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    await safeGoto(page, CONNECT_URL, { timeout: 15000, label: 'connect' }).catch(() => {});
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
     loginFormVisible = await isLoginFormVisible(page);
   }
 
   if (loginFormVisible || !(await isLoggedIn(page))) {
-    await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await safeGoto(page, LOGIN_URL, { timeout: 20000, label: 'login' });
     loginFormVisible = await isLoginFormVisible(page);
   }
 
   if (loginFormVisible) {
-    console.log(`Logging in to Everyone Active as ${profile.name}...`);
+    log?.phase('logging-in', { profile: profile.name });
+    console.error(`Logging in to Everyone Active as ${profile.name}...`);
     await performLogin(page, profile);
-    console.log('Login successful.');
+    console.error('Login successful.');
     await saveAuthState(context, profile);
   } else {
-    console.log(`Using existing session (${profile.name}).`);
+    log?.phase('using-session', { profile: profile.name });
+    console.error(`Using existing session (${profile.name}).`);
   }
 
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 
   if (!(await isLoggedIn(page)) || page.url().includes('mrmLogin.aspx')) {
-    await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await safeGoto(page, MEMBER_HOME_URL, { timeout: 15000, label: 'member-home-retry' });
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
   }
 
   await verifyLoggedInProfile(page, profile);
   await ensurePreferredSite(page);
   await ensureNoErrorPage(page, 'post-login dashboard');
+  log?.phase('authenticated', { profile: profile.key, name: profile.name });
 
   return { browser, context, page, profile };
 }

@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import fs from 'fs';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
 import type { ManageBookingRow } from './cancelBooking.js';
+import { safeGoto } from './nav.js';
 import { EacliCommandError } from './output.js';
 import {
   hasMultipleProfiles,
@@ -153,7 +154,7 @@ export async function switchMember(page: Page, member: LinkedMember): Promise<vo
   }
 
   if (!page.url().includes('memberHomePage.aspx')) {
-    await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await safeGoto(page, MEMBER_HOME_URL, { timeout: 20000, label: 'member-home' });
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   }
 
@@ -182,7 +183,7 @@ export async function getMembers(page: Page, activeProfile?: ResolvedProfile): P
     return [memberFromProfile(activeProfile)];
   }
   if (!page.url().includes('memberHomePage.aspx') && !page.url().includes('mrmSelectSite.aspx')) {
-    await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await safeGoto(page, MEMBER_HOME_URL, { timeout: 20000, label: 'member-home' });
   }
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'member-home');

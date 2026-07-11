@@ -4,7 +4,7 @@ Command-line tool to manage **Everyone Active** gym bookings via the official Co
 
 Designed for personal use and for **AI agents** ([OpenClaw](https://docs.openclaw.ai/), Cursor, Hermes, etc.) via **MCP** or **`--json`** output.
 
-**Agents:** start with **[AGENTS.md](AGENTS.md)** and **[docs/agents.md](docs/agents.md)** — setup, workflows, and portal quirks live in the repo.
+**Agents:** start with **[OPENCLAW.md](OPENCLAW.md)** (OpenClaw), **[AGENTS.md](AGENTS.md)**, **[skills/eacli/SKILL.md](skills/eacli/SKILL.md)**, and **[docs/agents.md](docs/agents.md)** — setup, workflows, and portal quirks live in the repo.
 
 ## Requirements
 

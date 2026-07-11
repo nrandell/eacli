@@ -8,6 +8,7 @@ import { getFavourites } from '../favourites.js';
 import { listAvailability } from '../availability.js';
 import { getMembers } from '../members.js';
 import {
+  attachDiagnostics,
   EacliCommandError,
   errorResponse,
   mapErrorFromThrowable,
@@ -15,23 +16,41 @@ import {
   type EacliResponse,
 } from '../output.js';
 import { hasMultipleProfiles, listProfileSummaries, type ResolvedProfile } from '../profiles.js';
+import { endRunLog, startRunLog } from '../runLog.js';
 import type { ToolName } from '../tools/schema.js';
 import { toolInputSchemas } from '../tools/schema.js';
 
 async function withAuthenticatedPage<T>(
   command: string,
   authOptions: AuthOptions,
-  fn: (page: Page, profile: ResolvedProfile) => Promise<T>
+  fn: (page: Page, profile: ResolvedProfile) => Promise<T>,
+  runArgs?: Record<string, unknown>
 ): Promise<EacliResponse<T>> {
+  const runLog = startRunLog({
+    command,
+    profile: authOptions.profile ?? authOptions.member,
+    args: runArgs,
+  });
   let auth: AuthResult | undefined;
   try {
     auth = await getAuthenticatedContext(authOptions);
+    runLog.setProfile(auth.profile.key);
     const data = await fn(auth.page, auth.profile);
+    runLog.finishSuccess();
     return successResponse(command, data);
   } catch (err: unknown) {
-    return errorResponse(command, mapErrorFromThrowable(err));
+    const artifacts = await runLog.captureFailure(auth?.page, command);
+    runLog.finishError(err, artifacts);
+    return errorResponse(
+      command,
+      attachDiagnostics(mapErrorFromThrowable(err), {
+        logPath: runLog.relativeLogPath,
+        artifacts: runLog.artifactList,
+      })
+    );
   } finally {
     if (auth) await closeAuthenticated(auth).catch(() => {});
+    endRunLog();
   }
 }
 
@@ -80,7 +99,8 @@ export async function executeTool(
         authOptionsFromInput({ profile, member }),
         async (page) => ({
           bookings: await getBookings(page),
-        })
+        }),
+        { profile, member }
       );
     }
 
@@ -97,7 +117,8 @@ export async function executeTool(
             favourites = favourites.filter((f) => f.member?.toLowerCase().includes(q) ?? true);
           }
           return { favourites };
-        }
+        },
+        { profile, member }
       );
     }
 
@@ -120,7 +141,8 @@ export async function executeTool(
               ...(member ? { memberName: member } : { memberName: activeProfile.name }),
             },
             activeProfile
-          )
+          ),
+        { activity, date, member, profile }
       );
     }
 
@@ -154,7 +176,8 @@ export async function executeTool(
             }
           }
           return bookClass(page, { memberName, activity, date }, activeProfile);
-        }
+        },
+        { activity, date, member, profile }
       );
     }
 
@@ -177,20 +200,42 @@ export async function executeTool(
               ...(member ? { memberName: member } : { memberName: activeProfile.name }),
             },
             activeProfile
-          )
+          ),
+        { activity, date, member, profile }
       );
     }
 
     case 'login': {
       const { force, profile, member } = input as { force?: boolean; profile?: string; member?: string };
+      const runLog = startRunLog({
+        command: name,
+        profile: profile ?? member,
+        args: { force, profile, member },
+      });
+      let auth: AuthResult | undefined;
       try {
-        const auth = await getAuthenticatedContext(
+        auth = await getAuthenticatedContext(
           authOptionsFromInput({ profile, member, forceLogin: Boolean(force) })
         );
+        const profileKey = auth.profile.key;
+        runLog.setProfile(profileKey);
         await closeAuthenticated(auth);
-        return successResponse(name, { loggedIn: true, profile: auth.profile.key });
+        auth = undefined;
+        runLog.finishSuccess({ profile: profileKey });
+        return successResponse(name, { loggedIn: true, profile: profileKey });
       } catch (err: unknown) {
-        return errorResponse(name, mapErrorFromThrowable(err));
+        const artifacts = await runLog.captureFailure(auth?.page, name);
+        runLog.finishError(err, artifacts);
+        return errorResponse(
+          name,
+          attachDiagnostics(mapErrorFromThrowable(err), {
+            logPath: runLog.relativeLogPath,
+            artifacts: runLog.artifactList,
+          })
+        );
+      } finally {
+        if (auth) await closeAuthenticated(auth).catch(() => {});
+        endRunLog();
       }
     }
 

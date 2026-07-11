@@ -6,6 +6,7 @@ import fs from 'fs';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
 import { collectManageBookingRows } from './cancelBooking.js';
 import { findMemberByName, getMembers, switchMember, type LinkedMember } from './members.js';
+import { safeGoto } from './nav.js';
 
 export interface Favourite {
   name: string;
@@ -73,7 +74,7 @@ export async function collectFavouritesForMember(page: Page, member?: LinkedMemb
 /** Fetch QuickBook favourites from the Connect member home page. */
 export async function getFavourites(page: Page): Promise<Favourite[]> {
   if (!page.url().includes('memberHomePage.aspx')) {
-    await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await safeGoto(page, MEMBER_HOME_URL, { timeout: 20000, label: 'member-home' });
   }
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'member-home');
@@ -132,8 +133,19 @@ function normalizeActivity(s: string): string {
   return s.toLowerCase().replace(/\s+/g, '');
 }
 
+/** Strip day/time suffixes agents copy from portal labels. */
+function normalizeFavouriteQuery(query: string): string {
+  let q = query.trim();
+  q = q.replace(
+    /\s+(sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b.*$/i,
+    ''
+  );
+  q = q.replace(/\s+\d{1,2}:\d{2}.*$/i, '');
+  return q.trim() || query.trim();
+}
+
 export function findFavourite(favourites: Favourite[], activityQuery: string, targetDate?: Date): Favourite {
-  const q = normalizeActivity(activityQuery);
+  const q = normalizeActivity(normalizeFavouriteQuery(activityQuery));
   let candidates = favourites.filter(
     (f) => normalizeActivity(f.name).includes(q) || q.includes(normalizeActivity(f.name))
   );

@@ -5,6 +5,7 @@ import fs from 'fs';
 import { ensureNoErrorPage } from './connect.js';
 import { parseSessionDateLabel, resolveTargetDate, sameCalendarDay } from './favourites.js';
 import { resolveMember } from './members.js';
+import { safeGoto } from './nav.js';
 import type { ResolvedProfile } from './profiles.js';
 
 export const MANAGE_BOOKINGS_URL =
@@ -232,7 +233,7 @@ async function findNextPageControl(page: Page): Promise<import('playwright').Loc
  * Use this for list_bookings flows that need complete household attribution.
  */
 export async function collectManageBookingRows(page: Page): Promise<ManageBookingRow[]> {
-  await page.goto(MANAGE_BOOKINGS_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await safeGoto(page, MANAGE_BOOKINGS_URL, { timeout: 20000, label: 'manage-bookings' });
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'manage-bookings');
 

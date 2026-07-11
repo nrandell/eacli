@@ -10,6 +10,7 @@ import {
   profilesConfigPath,
   resolveAuthStatePath,
 } from './profiles.js';
+import { getDiagnosticsSummary } from './runLog.js';
 
 export interface DoctorCheck {
   name: string;
@@ -20,6 +21,7 @@ export interface DoctorCheck {
 export interface DoctorResult {
   checks: DoctorCheck[];
   ready: boolean;
+  diagnostics?: ReturnType<typeof getDiagnosticsSummary>;
 }
 
 const LEGACY_AUTH_STATE = '.eacli-auth-state.json';
@@ -86,13 +88,16 @@ export async function runDoctor(): Promise<DoctorResult> {
     });
   }
 
+  const diag = getDiagnosticsSummary();
   try {
     const browser = await chromium.launch({ headless: true });
     await browser.close();
     checks.push({
       name: 'playwright',
       ok: true,
-      message: 'Playwright Chromium launches successfully',
+      message: diag.playwrightVersion
+        ? `Playwright Chromium launches successfully (playwright@${diag.playwrightVersion})`
+        : 'Playwright Chromium launches successfully',
     });
   } catch (err: unknown) {
     checks.push({
@@ -102,8 +107,30 @@ export async function runDoctor(): Promise<DoctorResult> {
     });
   }
 
-  const ready = checks.every((c) => c.ok);
-  return { checks, ready };
+  if (diag.lastRunLog) {
+    checks.push({
+      name: 'last_run_log',
+      ok: true,
+      message: `${diag.lastRunLog}${diag.lastRunLogMtime ? ` (mtime ${diag.lastRunLogMtime})` : ''}`,
+    });
+  } else {
+    checks.push({
+      name: 'last_run_log',
+      ok: true,
+      message: 'No .eacli-session/last-run.log yet (created on first command)',
+    });
+  }
+
+  if (diag.lastFailureHtml) {
+    checks.push({
+      name: 'last_failure',
+      ok: true,
+      message: `${diag.lastFailureHtml}${diag.lastFailureHtmlMtime ? ` (mtime ${diag.lastFailureHtmlMtime})` : ''}${diag.lastFailurePng ? `; png ${diag.lastFailurePng}` : ''}`,
+    });
+  }
+
+  const ready = checks.filter((c) => c.name !== 'last_run_log' && c.name !== 'last_failure').every((c) => c.ok);
+  return { checks, ready, diagnostics: diag };
 }
 
 export function printDoctor(result: DoctorResult): void {

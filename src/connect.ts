@@ -1,6 +1,7 @@
 import type { Page } from 'playwright';
 import chalk from 'chalk';
 import fs from 'fs';
+import { getActiveRunLog } from './runLog.js';
 
 export const MEMBER_HOME_URL = 'https://book.everyoneactive.com/Connect/memberHomePage.aspx';
 export const SELECT_SITE_URL = 'https://book.everyoneactive.com/Connect/mrmSelectSite.aspx';
@@ -57,17 +58,20 @@ export async function ensureNoErrorPage(page: Page, context: string): Promise<vo
   const safeContext = context.replace(/[^a-z0-9_-]/gi, '_');
   const pngPath = `.eacli-session/last-${safeContext}-error.png`;
   const htmlPath = `.eacli-session/last-${safeContext}-error.html`;
+  const log = getActiveRunLog();
 
   try {
     fs.mkdirSync('.eacli-session', { recursive: true });
     await page.screenshot({ path: pngPath, fullPage: true });
     fs.writeFileSync(htmlPath, await page.content());
+    log?.error('site error page detected', { context, pngPath, htmlPath, url: page.url() });
+    await log?.captureFailure(page, context);
     if (process.env.DEBUG) {
       console.log(chalk.gray(`[debug] Saved error diagnostics to ${pngPath} and ${htmlPath}`));
     }
   } catch {}
 
   throw new Error(
-    `Everyone Active site returned an error page at ${context}. Debug artifacts saved to .eacli-session/. Re-run with --debug for more details.`
+    `Everyone Active site returned an error page at ${context}. Debug artifacts saved to .eacli-session/ (see last-failure.html and last-run.log).`
   );
 }

@@ -11,6 +11,7 @@ import { getFavourites, printFavourites } from './favourites.js';
 import { listAvailability, printAvailability } from './availability.js';
 import { getMembers, printMembers, printProfileSummaries } from './members.js';
 import {
+  attachDiagnostics,
   errorResponse,
   exitCodeForError,
   isJsonMode,
@@ -21,6 +22,7 @@ import {
   writeJson,
 } from './output.js';
 import { hasMultipleProfiles, listProfileSummaries } from './profiles.js';
+import { endRunLog, startRunLog } from './runLog.js';
 
 interface GlobalOptions {
   json?: boolean;
@@ -74,30 +76,53 @@ async function withAuth<T>(
     page: Awaited<ReturnType<typeof getAuthenticatedContext>>['page'],
     profile: Awaited<ReturnType<typeof getAuthenticatedContext>>['profile']
   ) => Promise<T>,
-  print?: (data: T) => void
+  print?: (data: T) => void,
+  runArgs?: Record<string, unknown>
 ): Promise<void> {
   if (debug) process.env.DEBUG = '1';
+  const runLog = startRunLog({
+    command,
+    profile: authOptions.profile ?? authOptions.member,
+    args: runArgs,
+  });
   let auth: Awaited<ReturnType<typeof getAuthenticatedContext>> | undefined;
   try {
+    // Always emit progress on stderr so OpenClaw process polling sees activity
+    process.stderr.write(`[eacli] Connecting to Everyone Active...\n`);
     logInfo(chalk.blue('Connecting to Everyone Active...'));
     auth = await getAuthenticatedContext(authOpts(authOptions));
+    runLog.setProfile(auth.profile.key);
+    process.stderr.write(`[eacli] ${status}\n`);
     logInfo(chalk.blue(status));
+    runLog.phase(status);
     const data = await fn(auth.page, auth.profile);
+    runLog.finishSuccess();
     if (isJsonMode()) {
       writeJson(successResponse(command, data));
     } else if (print) {
       print(data);
     }
   } catch (err: unknown) {
-    const error = mapErrorFromThrowable(err);
+    const artifacts = await runLog.captureFailure(auth?.page, command);
+    runLog.finishError(err, artifacts);
+    const error = attachDiagnostics(mapErrorFromThrowable(err), {
+      logPath: runLog.relativeLogPath,
+      artifacts: [
+        ...runLog.artifactList,
+        ...(artifacts.htmlPath ? [artifacts.htmlPath] : []),
+        ...(artifacts.pngPath ? [artifacts.pngPath] : []),
+      ].filter((v, i, a) => a.indexOf(v) === i),
+    });
     if (isJsonMode()) {
       writeJson(errorResponse(command, error));
     } else {
       console.error(chalk.red('Error:'), error.message);
+      if (error.logPath) console.error(chalk.gray(`Log: ${error.logPath}`));
     }
     process.exit(exitCodeForError(error.code));
   } finally {
     if (auth) await closeAuthenticated(auth).catch(() => {});
+    endRunLog();
   }
 }
 
@@ -108,7 +133,7 @@ program
   .description(
     'CLI to manage bookings at Everyone Active centres (uses Playwright). Sessions are saved per profile in .eacli-session/.'
   )
-  .version('1.5.0')
+  .version('1.6.0')
   .option('--json', 'Emit JSON on stdout (for LLM / automation)')
   .option('--profile <key>', 'Login profile key (separate EA account; see .eacli-profiles.json)')
   .hook('preAction', () => {
@@ -140,7 +165,8 @@ bookingsCmd
           },
           profile
         ),
-      printCancelResult
+      printCancelResult,
+      { activity: options.activity, date: options.date, member: options.member }
     );
   });
 
@@ -167,7 +193,8 @@ program
           },
           profile
         ),
-      printBookResult
+      printBookResult,
+      { activity: options.activity, date: options.date, member: options.member }
     );
   });
 
@@ -179,29 +206,49 @@ program
   .option('--debug', 'Enable verbose debug logging')
   .action(async (options) => {
     if (options.debug) process.env.DEBUG = '1';
+    const runLog = startRunLog({
+      command: 'login',
+      profile: options.profile ?? options.member,
+      args: { profile: options.profile, member: options.member, force: true },
+    });
+    let auth: Awaited<ReturnType<typeof getAuthenticatedContext>> | undefined;
     try {
+      process.stderr.write('[eacli] Forcing re-authentication...\n');
       logInfo(chalk.blue('Forcing re-authentication...'));
-      const auth = await getAuthenticatedContext(
+      auth = await getAuthenticatedContext(
         authOpts({
           forceLogin: true,
           profile: options.profile,
           member: options.member,
         })
       );
+      const profileKey = auth.profile.key;
+      runLog.setProfile(profileKey);
       await closeAuthenticated(auth);
+      auth = undefined;
+      runLog.finishSuccess({ profile: profileKey });
       if (isJsonMode()) {
-        writeJson(successResponse('login', { loggedIn: true, profile: auth.profile.key }));
+        writeJson(successResponse('login', { loggedIn: true, profile: profileKey }));
       } else {
-        console.log(chalk.green(`Login complete for profile "${auth.profile.key}". Session saved.`));
+        console.log(chalk.green(`Login complete for profile "${profileKey}". Session saved.`));
       }
     } catch (err: unknown) {
-      const error = mapErrorFromThrowable(err);
+      const artifacts = await runLog.captureFailure(auth?.page, 'login');
+      runLog.finishError(err, artifacts);
+      const error = attachDiagnostics(mapErrorFromThrowable(err), {
+        logPath: runLog.relativeLogPath,
+        artifacts: runLog.artifactList,
+      });
       if (isJsonMode()) {
         writeJson(errorResponse('login', error));
       } else {
         console.error(chalk.red('Login error:'), error.message);
+        if (error.logPath) console.error(chalk.gray(`Log: ${error.logPath}`));
       }
       process.exit(exitCodeForError(error.code));
+    } finally {
+      if (auth) await closeAuthenticated(auth).catch(() => {});
+      endRunLog();
     }
   });
 

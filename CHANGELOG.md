@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-11
+
+### Added
+
+- **Navigation retries** — `safeGoto` retries transient Chromium network failures (`ERR_NETWORK_CHANGED`, connection errors, timeouts) with backoff.
+- **`NETWORK_ERROR` code** — Maps `net::ERR_*` failures with a short retry hint for agents.
+- **Always-on run logs** — Each CLI/MCP command writes `.eacli-session/logs/<stamp>-<cmd>-<profile>.log` and mirrors to `last-run.log`. Failures also save `last-failure.html` / `last-failure.png`. JSON errors may include `logPath` and `artifacts`.
+- **Progress on stderr** — `[eacli] …` phase lines so OpenClaw exec/poll tooling sees activity during long Playwright runs.
+- **OpenClaw skill pack** — [skills/eacli/](skills/eacli/) (`SKILL.md` + references) and root [OPENCLAW.md](OPENCLAW.md).
+- **Doctor diagnostics** — Reports last-run log, last-failure artifacts, and Playwright version.
+
+### Changed
+
+- Dependency bumps (Playwright, axios, MCP SDK, tsx, etc.; TypeScript stays on 6.x).
+- Activity matching strips portal day/time suffixes and accepts spaced queries like `h I I t` when the list loads.
+- Empty Group Exercise list throws a diagnostic error (URL/title + failure dump) instead of blank `Examples:`.
+- MCP server instructions and activity param docs push compact names (`hiit`) and network retry guidance.
+- Cursor skill is a thin pointer to `skills/eacli/`.
+
+### Fixed
+
+- Clearer post-mortems for OpenClaw booking hangs and network flakes that previously surfaced as `UNKNOWN` or empty activity-not-found messages.
+
+## [1.5.0] - 2026-06-23
+
 ### Added
 
 - **Multi-profile login (v1.5.0)** — Household members with separate Everyone Active credentials use `.eacli-profiles.json` (see `.eacli-profiles.example.json`). Per-profile sessions in `.eacli-session/auth-<key>.json`. CLI global `--profile`; `--member` auto-selects profile. Commands: `profiles list`, `login --profile <key>`.
@@ -22,9 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Profile name matching** — Member resolution uses profile key, full name, or first name only (surname-only queries like `randell` no longer match ambiguously).
 - **Post-login verification** — Fails if portal display name cannot be read or does not match the profile (brittle by design).
 - **Legacy session drift** — Migrating `.eacli-auth-state.json` copies to `auth-default.json` and deletes the legacy file; saves also remove stale legacy sessions.
-
-### Fixed
-
 - **list_bookings / cancel_booking missing confirmed sessions** — Everyone Active's Manage Bookings page now renders separate `gvBookings` tables per section (e.g. "Bookings on Waiting List" and "Confirmed bookings"). `parseManageBookings` previously read only the first table, so accounts with waitlisted classes saw incomplete lists (often a single session). The parser now iterates all tables; `status` reflects the section (`Confirmed` vs `Waiting List`). `cancel_booking` uses the same paged collector as `list_bookings`.
 
 ## [1.4.0] - 2026-06-02

@@ -6,6 +6,7 @@ import * as cheerio from 'cheerio';
 import { MEMBER_HOME_URL, ensureNoErrorPage } from './connect.js';
 import { parseSessionDateLabel } from './favourites.js';
 import { getMembers, switchMember } from './members.js';
+import { safeGoto } from './nav.js';
 import { hasMultipleProfiles } from './profiles.js';
 import {
   MANAGE_BOOKINGS_URL,
@@ -169,7 +170,7 @@ export function parseUpcomingBookings(html: string): Booking[] {
 }
 
 async function getBookingsFromUpcomingPanel(page: Page): Promise<Booking[]> {
-  await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await safeGoto(page, MEMBER_HOME_URL, { timeout: 20000, label: 'member-home' });
   await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   await ensureNoErrorPage(page, 'member-home');
 
@@ -243,7 +244,7 @@ export async function getBookings(page: Page): Promise<Booking[]> {
         // Capture the member home page in this context (upcoming panel often reflects the current member)
         if (process.env.DEBUG) {
           try {
-            await page.goto(MEMBER_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+            await safeGoto(page, MEMBER_HOME_URL, { timeout: 15000, label: 'member-home' }).catch(() => {});
             await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
             const homeHtml = await page.content();
 

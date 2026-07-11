@@ -17,6 +17,7 @@ import {
 } from './favourites.js';
 import { resolveMember } from './members.js';
 import type { ResolvedProfile } from './profiles.js';
+import { getActiveRunLog } from './runLog.js';
 
 export interface BookClassOptions {
   memberName: string;
@@ -78,15 +79,29 @@ export async function bookClass(
   options: BookClassOptions,
   activeProfile?: ResolvedProfile
 ): Promise<BookClassResult> {
+  const log = getActiveRunLog();
   const targetDate = resolveTargetDate(options.date);
   const dateLabel = formatEaDateLabel(targetDate);
   const member = await resolveMember(page, options.memberName, activeProfile);
+
+  log?.phase('opening-class', {
+    activity: options.activity,
+    date: options.date,
+    member: member?.name ?? options.memberName,
+  });
 
   const opened = await openClassStatus(page, {
     ...(member?.name ? { memberName: member.name } : {}),
     activity: options.activity,
     date: options.date,
     ...(activeProfile ? { activeProfile } : {}),
+  });
+
+  log?.info('class status open', {
+    activityLabel: opened.activityLabel,
+    source: opened.source,
+    dateLabel,
+    pageMessage: opened.pageMessage,
   });
 
   if (process.env.DEBUG) {
@@ -149,6 +164,7 @@ export async function bookClass(
   const waitBtn = matchedRow.locator('input[id*="Wait"], input[value*="aitlist" i]').first();
 
   let waitlisted = false;
+  log?.phase('booking-session', { sessionLabel, activity: opened.activityLabel });
   if (await bookBtn.isVisible().catch(() => false)) {
     await bookBtn.click();
   } else if (await availBtn.isVisible().catch(() => false)) {
@@ -160,6 +176,7 @@ export async function bookClass(
     throw new Error(`Session ${sessionLabel} has no Book or Waitlist button (may be full).`);
   }
 
+  log?.phase('confirming-basket');
   const basketResult = await confirmBookingBasket(page);
   const { confirmed, confirmationDetails, finalUrl } = basketResult;
 

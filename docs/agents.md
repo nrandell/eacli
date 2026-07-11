@@ -43,6 +43,8 @@ Always check which field is present before parsing.
 
 ## OpenClaw (recommended)
 
+**First stop for OpenClaw:** [../OPENCLAW.md](../OPENCLAW.md) and the portable skill [../skills/eacli/SKILL.md](../skills/eacli/SKILL.md).
+
 OpenClaw stores MCP servers in its config (`openclaw mcp add`, etc.). Use the wrapper script so `.env` and the session file resolve correctly:
 
 ```bash
@@ -77,12 +79,19 @@ openclaw mcp tools eacli \
 
 ### Agent behaviour in OpenClaw
 
-Point your agent at this repo's instructions:
+1. Load **[../skills/eacli/SKILL.md](../skills/eacli/SKILL.md)** (symlink/copy into OpenClaw skills path — see skill `references/openclaw-setup.md`).
+2. Prefer **MCP tools** over shell exec; if shell is required, always `--json` from `<EACLI_ROOT>`.
+3. Activity queries: **`hiit`**, **`combat`** — not spaced portal labels (`h I I t`). Portal may show `H I I T Sat 08:25`.
+4. On `NETWORK_ERROR`: wait, retry once, then force `login` + `doctor`. Read `.eacli-session/last-run.log`.
+5. Progress appears on stderr as `[eacli] …` during long Playwright runs (do not kill under ~180s).
 
-- **[../AGENTS.md](../AGENTS.md)** — short rules (confirm before book/cancel, `members[]`, timeouts)
-- **This file** — workflows and portal quirks below
+Also point the agent at:
 
-OpenClaw does not load Cursor's `.cursor/skills/` automatically. Copy key rules into your OpenClaw agent system prompt, or tell the agent to read `AGENTS.md` and `docs/agents.md` from `<EACLI_ROOT>` when working on bookings.
+- **[../OPENCLAW.md](../OPENCLAW.md)** — setup + playbook  
+- **[../AGENTS.md](../AGENTS.md)** — short rules  
+- **This file** — JSON shapes and portal quirks  
+
+Cursor’s `.cursor/skills/` is not loaded by OpenClaw; use `skills/eacli/` instead.
 
 After config changes: `openclaw mcp reload` (or restart the gateway/agent process if MCP was already cached).
 
@@ -195,7 +204,7 @@ Pass natural language through: `saturday`, `next sunday`, `today`, `2026-05-25`,
 | Code | Meaning |
 |------|---------|
 | `NO_SESSION` | No class on that date |
-| `ACTIVITY_NOT_FOUND` | Activity not in Group Exercise list |
+| `ACTIVITY_NOT_FOUND` | Activity not in Group Exercise list (or activity list page empty) |
 | `BOOKING_NOT_FOUND` | No matching booking to cancel |
 | `AMBIGUOUS_MEMBER` | Multiple bookings match — need member |
 | `MEMBER_NOT_FOUND` | Name not in linked members |
@@ -206,6 +215,9 @@ Pass natural language through: `saturday`, `next sunday`, `today`, `2026-05-25`,
 | `NOT_LOGGED_IN` | Login required (`login` tool or `npm run dev -- login`) |
 | `SITE_ERROR` | Portal error page |
 | `TIMEOUT` | Playwright timeout — retry or increase MCP timeout |
+| `NETWORK_ERROR` | Transient Chromium network failure (`net::ERR_*`) — wait and retry once |
+
+Errors may include optional **`logPath`** and **`artifacts`** pointing at `.eacli-session/` diagnostics.
 
 ---
 
@@ -240,11 +252,25 @@ Tool descriptions in MCP are generated from [src/tools/schema.ts](../src/tools/s
 | Issue | Action |
 |-------|--------|
 | `NOT_LOGGED_IN` | `npm run dev -- login` from `<EACLI_ROOT>` |
+| `NETWORK_ERROR` | Wait a few seconds; retry once; check VPN/Wi‑Fi; force login if repeated |
 | Slow / `TIMEOUT` | Increase MCP timeout to 180s+; avoid rapid retries |
 | Wrong member on booking | Pass explicit `member`; call `list_members` first |
-| Missing bookings | Re-run `list_bookings`; use `--debug` and inspect `.eacli-session/` HTML dumps |
+| Missing bookings | Re-run `list_bookings`; inspect `.eacli-session/` HTML dumps |
+| Empty activity list | See `last-failure.html`; retry / force login — often network or stale session |
 | MCP can't find `.env` | Use `bin/run-mcp.sh` or set `--cwd <EACLI_ROOT>` |
+
+### Always-on diagnostics (v1.6+)
+
+| Path | Content |
+|------|---------|
+| `.eacli-session/last-run.log` | Latest command log (phases, URLs, errors) |
+| `.eacli-session/logs/*.log` | Per-command logs |
+| `.eacli-session/last-failure.html` | Portal HTML at failure |
+| `.eacli-session/last-failure.png` | Screenshot when available |
+
+`doctor` reports last-run / last-failure pointers and Playwright version.
 
 ```bash
 DEBUG=1 npm run dev -- bookings list --json
+cat .eacli-session/last-run.log
 ```

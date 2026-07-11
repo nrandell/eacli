@@ -11,7 +11,9 @@ import {
   type Favourite,
 } from './favourites.js';
 import { resolveMember, type LinkedMember } from './members.js';
+import { safeGoto } from './nav.js';
 import type { ResolvedProfile } from './profiles.js';
+import { getActiveRunLog } from './runLog.js';
 
 /** In-centre group classes (HIIT, Combat, etc.) — not "Group Exercise - Virtual". */
 const GROUP_EXERCISE_IN_PERSON_SELECTOR =
@@ -151,6 +153,21 @@ function compactActivity(s: string): string {
   return normalizeActivity(s).replace(/\s/g, '');
 }
 
+/**
+ * Agents sometimes pass full portal labels ("H I I T Sat 08:25") or spaced
+ * acronyms ("h I I t"). Strip trailing day/time fragments for matching.
+ */
+export function normalizeActivityQuery(query: string): string {
+  let q = query.trim();
+  // Drop trailing "Mon 19:00" / "Saturday 08:25" style suffixes
+  q = q.replace(
+    /\s+(sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b.*$/i,
+    ''
+  );
+  q = q.replace(/\s+\d{1,2}:\d{2}.*$/i, '');
+  return q.trim() || query.trim();
+}
+
 function activityMatchesDay(activityName: string, targetDate: Date): boolean {
   const dayToken = DAY_TOKENS[targetDate.getDay()]!;
   const name = activityName.toLowerCase();
@@ -159,11 +176,12 @@ function activityMatchesDay(activityName: string, targetDate: Date): boolean {
 
 /** Score how well an activity label matches a query (higher = better). */
 export function scoreActivityMatch(activityName: string, query: string, targetDate?: Date): number {
-  const q = compactActivity(query);
+  const normalizedQuery = normalizeActivityQuery(query);
+  const q = compactActivity(normalizedQuery);
   const n = compactActivity(activityName);
   if (!q || !n) return 0;
   if (n === q) return 100;
-  if (activityName === query) return 95;
+  if (activityName === query || activityName === normalizedQuery) return 95;
 
   if (targetDate && !activityMatchesDay(activityName, targetDate)) return 0;
 
@@ -175,7 +193,7 @@ export function scoreActivityMatch(activityName: string, query: string, targetDa
   if (targetDate) score += 15;
 
   // Prefer in-centre names over virtual when query has no "vir"
-  if (!/^vir\b/i.test(query) && /^vir\b/i.test(activityName)) score -= 25;
+  if (!/^vir\b/i.test(normalizedQuery) && /^vir\b/i.test(activityName)) score -= 25;
 
   return score;
 }
@@ -215,13 +233,16 @@ export function parseGroupExerciseActivities(html: string): string[] {
 
 /** Make a Booking → preferred site → Group Exercise 16+ Yrs → activity picker. */
 export async function navigateToGroupExerciseList(page: Page): Promise<void> {
+  const log = getActiveRunLog();
   if (!/mrmselectActivityGroup\.aspx/i.test(page.url()) && !/mrmSelectActivity\.aspx/i.test(page.url())) {
-    await page.goto(SELECT_SITE_URL, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    log?.phase('select-site');
+    await safeGoto(page, SELECT_SITE_URL, { timeout: 20000, label: 'select-site' });
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await ensurePreferredSite(page);
   }
 
   if (/mrmselectActivityGroup\.aspx/i.test(page.url())) {
+    log?.phase('group-exercise-list');
     const groupBtn = page.locator(GROUP_EXERCISE_IN_PERSON_SELECTOR).first();
     await groupBtn.waitFor({ state: 'visible', timeout: 15000 });
     await groupBtn.click();
@@ -242,6 +263,9 @@ async function clickActivityOnList(
   mode: 'exact' | 'partial',
   targetDate?: Date
 ): Promise<string> {
+  const log = getActiveRunLog();
+  const query = normalizeActivityQuery(activityQuery);
+
   if (!/mrmSelectActivity\.aspx/i.test(page.url())) {
     await navigateToGroupExerciseList(page);
   }
@@ -255,8 +279,32 @@ async function clickActivityOnList(
     if (v.trim()) names.push(v);
   }
 
+  log?.info('activity list loaded', {
+    url: page.url(),
+    count: names.length,
+    query: activityQuery,
+    normalizedQuery: query,
+  });
+
+  if (names.length === 0) {
+    await log?.captureFailure(page, 'empty-activity-list');
+    const url = page.url();
+    const title = await page.title().catch(() => '');
+    throw new Error(
+      `Activity list was empty while looking for "${activityQuery}" (page URL: ${url}${title ? `, title: ${title}` : ''}). ` +
+        `The Group Exercise catalogue did not render — often a network glitch or stale session. ` +
+        `Retry once; if it persists run login (force) then doctor. Diagnostics: .eacli-session/last-failure.html`
+    );
+  }
+
   if (mode === 'exact') {
-    const exact = names.find((n) => n === activityQuery || normalizeActivity(n) === normalizeActivity(activityQuery));
+    const exact = names.find(
+      (n) =>
+        n === activityQuery ||
+        n === query ||
+        normalizeActivity(n) === normalizeActivity(activityQuery) ||
+        normalizeActivity(n) === normalizeActivity(query)
+    );
     if (exact) {
       await buttons.filter({ hasText: exact }).first().click();
       await page.waitForURL(/mrmClassStatus\.aspx/i, { timeout: 30000 });
@@ -266,8 +314,9 @@ async function clickActivityOnList(
     }
   }
 
-  const match = bestActivityMatch(names, activityQuery, targetDate);
+  const match = bestActivityMatch(names, query, targetDate);
   if (match) {
+    log?.info('activity matched', { query: activityQuery, match });
     if (process.env.DEBUG) {
       console.log(chalk.gray(`[debug] Matched activity "${activityQuery}" → "${match}"`));
     }

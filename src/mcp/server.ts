@@ -19,10 +19,10 @@ function toolTextResult(response: EacliResponse<unknown>) {
 const server = new McpServer(
   {
     name: 'eacli',
-    version: '1.5.0',
+    version: '1.6.0',
   },
   {
-    instructions: `Everyone Active booking tools. Household members use separate EA logins (.eacli-profiles.json) — pass member or profile on every command (first names work, e.g. "hayley"). Call list_members first when the user says "me" and multiple people may exist. list_bookings shows only the active profile's bookings. Call check_availability before book_class; ask the user to confirm book/cancel. Always pass activity and date to check_availability. check_availability returns alreadyBooked and bookable — if alreadyBooked is true, do NOT call book_class. In-centre classes: Group Exercise 16+ Yrs ("combat" Sunday → BodyCombat Sun, Thursday → Combat Thu). Prefer precise dates (DD/MM/YYYY). After book_class, verify with list_bookings for that member/profile; confirmed:false is not always failure.`,
+    instructions: `Everyone Active booking tools (timeout ≥ 180s). Prefer MCP over shell. Household: separate EA logins in .eacli-profiles.json — pass member or profile (first names ok, e.g. "hayley"). Workflow: list_members → check_availability (always pass activity + date) → user confirm → book_class → verify with list_bookings. Activity queries: use compact names like "hiit" or "combat" (not spaced portal labels "h I I t"); portal may show "H I I T Sat 08:25". If alreadyBooked is true, do NOT book. confirmed:false is not always failure — check list_bookings. On NETWORK_ERROR or timeout: wait a few seconds and retry once; then login(force) + doctor. On failure, read error.logPath and .eacli-session/last-run.log / last-failure.html. Docs: OPENCLAW.md, AGENTS.md, skills/eacli/SKILL.md.`,
   }
 );
 
